@@ -5,10 +5,8 @@ import argparse
 import yaml
 from tqdm import tqdm
 import os
-from torch.utils.data import DataLoader
 from train_stage_1 import create_basis
 from SOD_solver import SODSolver
-import torch.nn as nn
 
 if __name__ == "__main__":
     set_seed(0)

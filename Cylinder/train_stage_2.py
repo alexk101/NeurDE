@@ -8,7 +8,6 @@ import os
 from torch.utils.data import DataLoader
 from train_stage_1 import create_basis
 from cylinder_solver import Cylinder_base
-import torch.nn as nn
 
 if __name__ == "__main__":
     set_seed(0)

@@ -4,7 +4,6 @@ import os
 import matplotlib.pyplot as plt
 import h5py
 from torch.utils.data import Dataset
-import torch.nn.functional as F
 
 def detach(x):
     return x.detach().cpu().numpy()

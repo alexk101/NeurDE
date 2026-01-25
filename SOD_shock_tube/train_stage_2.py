@@ -8,7 +8,8 @@ import os
 from torch.utils.data import DataLoader
 from train_stage_1 import create_basis
 from SOD_solver import SODSolver
-import torch.nn as nn
+from pathlib import Path
+from statistics import stdev
 
 if __name__ == "__main__":
     set_seed(0)
@@ -22,16 +23,14 @@ if __name__ == "__main__":
     parser.add_argument("--save_frequency", default=1, help='Save model')
     parser.add_argument("--TVD", dest='TVD', action='store_true', help='TVD norm', default=False)
     parser.add_argument("--pre_trained_path", type=str, default=None)
+    parser.add_argument("--ema_alpha", type=float, default=0.1, help='EMA smoothing factor for batch loss (0-1)')
     parser.set_defaults(save_model=True)
     args = parser.parse_args()
 
     device = get_device(args.device)
     if args.pre_trained_path:
-        args.pre_trained_path = args.pre_trained_path.replace("SOD_shock_tube/", "")
-        print(args.pre_trained_path)
-        case_part = args.pre_trained_path.split('/')[1]
-        case_number = ''.join(filter(str.isdigit, case_part))
-        args.case = int(case_number)
+        args.pre_trained_path = Path(args.pre_trained_path)
+        args.case = int(args.pre_trained_path.parent.parent.name[4:])
         print(args.case)
 
     else: 
@@ -156,8 +155,16 @@ if __name__ == "__main__":
         if args.compile:
             TVD_norm = torch.compile(TVD_norm, dynamic=True, fullgraph=False)
     current_loss = 0.0
-    for epoch in tqdm(range(epochs), desc="Epochs"):
+    ema_alpha = args.ema_alpha
+    # Allow config override
+    if "ema_alpha" in param_training["stage2"]:
+        ema_alpha = param_training["stage2"]["ema_alpha"]
+    
+    epoch_pbar = tqdm(range(epochs), desc="Epochs")
+    for epoch in epoch_pbar:
         loss_epoch = 0
+        batch_losses = []  # Track batch losses for std calculation
+        ema_batch_loss = None  # Initialize EMA
         if args.TVD:
             ux_old = torch.zeros_like(Fi0[1, ...])
             T_old = torch.zeros_like(Fi0[1, ...])
@@ -194,17 +201,31 @@ if __name__ == "__main__":
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            batch_loss = total_loss.item() / number_of_rollout
             loss_epoch += total_loss.item()
-            print(f"Epoch: {epoch}, Batch ID: {batch_idx}, Loss: {total_loss.item()/number_of_rollout:.6f}")
+            batch_losses.append(batch_loss)
+            
+            # Update EMA
+            if ema_batch_loss is None:
+                ema_batch_loss = batch_loss
+            else:
+                ema_batch_loss = ema_alpha * batch_loss + (1 - ema_alpha) * ema_batch_loss
+            
+            # Calculate std of batch losses
+            if len(batch_losses) > 1:
+                batch_std = stdev(batch_losses)
+            else:
+                batch_std = 0.0
+            
+            epoch_pbar.set_postfix({
+                'batch': batch_idx,
+                'train_loss_ema': f"{ema_batch_loss:.6f}",
+                'train_loss_std': f"{batch_std:.6f}"
+            })
 
         scheduler.step()
 
         current_loss = loss_epoch / len(dataloader)
-
-        if epoch % 100 == 0:
-            print(f"Epoch: {epoch}, Loss: {current_loss:.6f}")
-
-        
         
         model.eval()
         val_loss = 0.0
@@ -227,9 +248,10 @@ if __name__ == "__main__":
                 Fi0 = Fi.detach()
                 Gi0 = Gi.detach()
             val_loss /= len(val_dataset)
-            print("-" * 50)
-            print(f"Validation Loss: {val_loss:.6f}")
-            print("-" * 50)
+            epoch_pbar.set_postfix({
+                'train_loss': f"{current_loss:.6f}",
+                'val_loss': f"{val_loss:.6f}"
+            })
 
         if val_loss < max(best_losses):
             max_index = best_losses.index(max(best_losses))
@@ -252,7 +274,6 @@ if __name__ == "__main__":
                 epochs_since_last_save[i] += 1
 
         if epoch % 200 == 0:
-            print(f"Epoch: {epoch}, Loss: {current_loss:.6f}")
             save_path = os.path.join(param_training["stage2"]["model_dir"], f"model_{args.case}_epoch_{epoch}_loss_{val_loss:.6f}.pt")
             torch.save(model.state_dict(), save_path)
             
