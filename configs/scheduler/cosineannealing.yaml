@@ -1,0 +1,7 @@
+# @package scheduler
+# CosineAnnealingWarmRestarts scheduler configuration
+
+scheduler_type: CosineAnnealingWarmRestarts
+T_0: 500
+T_mult: 2
+eta_min: 5.01e-6

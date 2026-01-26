@@ -1,0 +1,7 @@
+# @package dataset
+# Stage 1 dataset configuration
+
+batch_size: 32
+shuffle: true
+num_workers: 4
+pin_memory: true

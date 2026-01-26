@@ -1,0 +1,35 @@
+# @package case
+# Cylinder_faster case configuration
+
+case_type: cylinder_faster
+solver_type: cylinder_faster  # Uses sparse solvers for better performance
+
+# Physics parameters (same as cylinder)
+physics:
+  X: 500
+  Y: 300
+  Qn: 9
+  radius: 20
+  Ma0: 1.8
+  Re: 300
+  rho0: 1.0
+  T0: 0.2
+  alpha1: 1.35
+  alpha01: 1.05
+  vuy: 1.4
+  Pr: 0.71
+  Ns: 0.6
+
+# Velocity shift calculation
+velocity_shift:
+  calculate: true
+
+# Solver-specific settings
+solver:
+  use_dense_inv: false  # Cylinder_faster uses sparse inversion
+  sparse_format: csc    # CSC format for better performance
+
+# Data paths
+data:
+  stage1: data_base/cylinder_case.h5
+  stage2: data_base/cylinder_case.h5

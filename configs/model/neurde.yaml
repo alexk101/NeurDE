@@ -1,0 +1,10 @@
+# @package model
+# NeurDE model architecture configuration
+
+hidden_dim: 32
+num_layers: 4
+activation: relu
+
+# Model architecture is defined as:
+# alpha_layer: [4, hidden_dim, hidden_dim, ..., hidden_dim] (num_layers+1 elements)
+# phi_layer: [2, hidden_dim, hidden_dim, ..., hidden_dim] (num_layers+1 elements)

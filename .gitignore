@@ -7,4 +7,9 @@ SOD_shock_tube/experiments_ant_check_code.py
 SOD_shock_tube/Sod_cases_param_training.yml
 .venv
 .python-version
+.cursor
 uv.lock
+data
+.pytest_cache
+outputs
+data_base

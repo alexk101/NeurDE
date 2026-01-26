@@ -1,0 +1,39 @@
+# @package case
+# SOD shock tube case configuration
+# Note: This is a template - actual case number (1 or 2) should be specified
+
+case_type: sod_shock_tube
+solver_type: sod_solver
+
+# Case number (1 or 2)
+case_number: 1
+
+# Physics parameters (case 1)
+physics:
+  X: 3001
+  Y: 5
+  Qn: 9
+  alpha1: 1.08
+  alpha01: 1.05
+  vuy: 2
+  Pr: 0.71
+  muy: 0.025
+  Uax: 0.057
+  Uay: 0.0
+  initial_conditions_func: case_1_initial_conditions
+  filename: SOD_case1.h5
+
+# Velocity shift (SOD uses direct values, not calculated)
+velocity_shift:
+  calculate: false
+  Uax: 0.057
+  Uay: 0.0
+
+# Solver-specific settings
+solver:
+  sparse_format: csr  # SOD uses CSR format
+
+# Data paths
+data:
+  stage1: data_base/SOD_case1.h5
+  stage2: data_base/SOD_case1.h5

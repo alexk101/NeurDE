@@ -1,0 +1,8 @@
+# @package scheduler
+# OneCycleLR scheduler configuration
+
+scheduler_type: OneCycleLR
+max_lr: 1.0e-4
+pct_start: 0.3
+div_factor: 10
+final_div_factor: 100

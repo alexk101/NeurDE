@@ -1,0 +1,24 @@
+# @package _global_
+# Evaluation configuration
+
+defaults:
+  - _self_
+  - case: cylinder
+  - model: neurde
+
+# Evaluation parameters
+num_steps: 500  # Number of evaluation steps
+init_cond: 500  # Initial condition index in dataset
+with_obs: true  # Enable obstacle handling (Cylinder cases only)
+
+# Model checkpoint
+trained_path: null  # Path to trained model checkpoint
+
+# Device configuration
+device: 0  # GPU index, or -1 for CPU
+
+# Model compilation
+compile: false
+
+# Output directory
+output_dir: images  # Base directory for output images

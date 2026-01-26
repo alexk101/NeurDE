@@ -1,0 +1,9 @@
+# @package training
+# Stage 1 training configuration
+
+epochs: 1000
+lr: 1.0e-3
+model_dir: results/stage1
+
+# Note: Optimizer and scheduler are configured separately
+# This file contains training-specific parameters

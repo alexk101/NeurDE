@@ -1,0 +1,26 @@
+# @package training
+# Stage 2 training configuration
+
+epochs: 1000
+lr: 1.0e-6
+model_dir: results/stage2
+N: 20  # Number of rollout steps
+
+# Optional features
+tvd:
+  enabled: false
+  weight: 15.0
+  weight_scheduler:
+    milestones: []  # Epoch milestones for weight changes
+    weights: []      # Corresponding weights
+
+validation:
+  enabled: false
+  dataset_size: 100  # Size of validation dataset
+
+# Detaching behavior (Stage 2 only)
+# SOD detaches after streaming, Cylinder doesn't
+detach_after_streaming: false
+
+# EMA tracking (always enabled by default)
+ema_alpha: 0.1
