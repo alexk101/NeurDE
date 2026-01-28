@@ -142,27 +142,25 @@ def main(cfg: DictConfig) -> None:
         pin_memory=cfg.dataset.pin_memory,
     )
 
-    # Create validation dataset if enabled
-    val_dataset = None
-    if cfg.training.validation.enabled:
-        val_dataset = Stage2Dataset(
-            F=all_F[
-                cfg.num_samples : cfg.num_samples
-                + cfg.training.validation.dataset_size
-            ],
-            G=all_G[
-                cfg.num_samples : cfg.num_samples
-                + cfg.training.validation.dataset_size
-            ],
-            Feq=all_Feq[
-                cfg.num_samples : cfg.num_samples
-                + cfg.training.validation.dataset_size
-            ],
-            Geq=all_Geq[
-                cfg.num_samples : cfg.num_samples
-                + cfg.training.validation.dataset_size
-            ],
-        )
+    # Create validation dataset (always required)
+    val_dataset = Stage2Dataset(
+        F=all_F[
+            cfg.num_samples : cfg.num_samples
+            + cfg.training.validation.dataset_size
+        ],
+        G=all_G[
+            cfg.num_samples : cfg.num_samples
+            + cfg.training.validation.dataset_size
+        ],
+        Feq=all_Feq[
+            cfg.num_samples : cfg.num_samples
+            + cfg.training.validation.dataset_size
+        ],
+        Geq=all_Geq[
+            cfg.num_samples : cfg.num_samples
+            + cfg.training.validation.dataset_size
+        ],
+    )
 
     # Create model
     model = NeurDE(
@@ -230,6 +228,7 @@ def main(cfg: DictConfig) -> None:
         model_dir=cfg.training.model_dir,
         basis=basis,
         num_rollout=cfg.training.N,
+        val_dataset=val_dataset,
         save_model=cfg.save_model,
         save_frequency=cfg.save_frequency,
         checkpoint_frequency=cfg.get("checkpoint_frequency", 0),
@@ -240,10 +239,7 @@ def main(cfg: DictConfig) -> None:
         tvd_weight=tvd_weight,
         tvd_milestones=tvd_milestones,
         tvd_weights=tvd_weights,
-        validation_enabled=cfg.training.validation.enabled,
-        val_dataset=val_dataset,
         detach_after_streaming=detach_after_streaming,
-        ema_alpha=cfg.training.ema_alpha,
     )
 
     # Print configuration
@@ -251,7 +247,7 @@ def main(cfg: DictConfig) -> None:
     print(f"Epochs: {cfg.training.epochs}, Samples: {cfg.num_samples}")
     print(f"Rollout steps: {cfg.training.N}")
     print(f"TVD enabled: {tvd_enabled}")
-    print(f"Validation enabled: {cfg.training.validation.enabled}")
+    print(f"Validation dataset size: {cfg.training.validation.dataset_size}")
     print(f"Detach after streaming: {detach_after_streaming}")
 
     # Train

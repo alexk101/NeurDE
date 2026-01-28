@@ -457,3 +457,18 @@ class BaseTrainer(ABC):
         if self.epoch_pbar is not None:
             self.epoch_pbar.close()
             self.epoch_pbar = None
+
+    def get_norm(self, kind: str = "grad"):
+        """
+        Get the norm of the model parameters.
+        """
+        norm = torch.zeros(1, dtype=torch.float32, device=self.device)
+        for p in self.model.parameters():
+            if kind == "weights":
+                local_norm = p.detach().float().norm(2).pow(2)
+            elif kind == "grad":
+                if p.grad is None:
+                    continue
+                local_norm = p.grad.detach().float().norm(2).pow(2)
+            norm += local_norm
+        return norm

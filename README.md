@@ -198,9 +198,9 @@ python train_stage2.py case=sod_shock_tube case_number=1 training=stage2 dataset
 python train_stage2.py case=sod_shock_tube case_number=2 training=stage2 dataset=stage2 training.tvd.enabled=true
 ```
 
-**With validation enabled (SOD):**
+**SOD case:**
 ```bash
-python train_stage2.py case=sod_shock_tube case_number=1 training=stage2 dataset=stage2 training.validation.enabled=true
+python train_stage2.py case=sod_shock_tube case_number=1 training=stage2 dataset=stage2
 ```
 
 **With pretrained model:**
@@ -245,7 +245,6 @@ python train_stage2.py \
     dataset=stage2 \
     training.tvd.enabled=true \
     training.tvd.weight=15.0 \
-    training.validation.enabled=true \
     device=0
 ```
 
@@ -280,9 +279,8 @@ python train_stage2.py \
 - `training.N`: Number of rollout steps (Stage 2 only)
 - `training.tvd.enabled`: Enable TVD loss (SOD case 2, Stage 2 only)
 - `training.tvd.weight`: TVD loss weight
-- `training.validation.enabled`: Enable validation loop (Stage 2 only)
+- `training.validation.dataset_size`: Size of validation dataset (Stage 2 only, always enabled)
 - `training.detach_after_streaming`: Detach gradients after streaming (SOD, Stage 2 only)
-- `training.ema_alpha`: EMA tracking alpha value (default: 0.1, Stage 2 only)
 
 **Dataset:**
 - `dataset.batch_size`: Batch size for DataLoader
@@ -301,9 +299,7 @@ python train_stage2.py \
    - **Cylinder_faster**: Uses sparse CSC solver throughout for better performance
    - **SOD**: Uses sparse CSR solver (no obstacle/BC handling needed)
 
-3. **EMA Tracking**: Exponential moving average (EMA) tracking for batch loss is enabled by default in Stage 2 training (alpha=0.1) to provide more stable loss monitoring.
-
-4. **Gradient Detaching**: 
+3. **Gradient Detaching**: 
    - **Cylinder/Cylinder_faster**: Gradients are not detached after streaming
    - **SOD**: Gradients are detached after streaming by default
 

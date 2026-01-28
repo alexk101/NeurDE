@@ -10,8 +10,9 @@ import torch
 import torch.nn as nn
 from typing import Optional, Any
 from torch.utils.data import DataLoader
+from logging import getLogger
+from tqdm.contrib.logging import logging_redirect_tqdm
 from tqdm import tqdm
-import numpy as np
 
 from .base import BaseTrainer
 from utils.datasets import Stage2Dataset
@@ -31,15 +32,11 @@ class Stage2Trainer(BaseTrainer):
     -------------
     Cylinder/Cylinder_faster:
         - TVD: False (default)
-        - Validation: False (default)
         - Detach after streaming: False (default)
-        - EMA: True (default, always enabled)
 
     SOD_shock_tube:
         - TVD: Optional (configurable, used in case 2)
-        - Validation: Optional (configurable)
         - Detach after streaming: True (default for SOD)
-        - EMA: True (default, always enabled)
     """
 
     def __init__(
@@ -53,6 +50,7 @@ class Stage2Trainer(BaseTrainer):
         model_dir: str,
         basis: torch.Tensor,
         num_rollout: int,
+        val_dataset: Stage2Dataset,
         save_model: bool = True,
         save_frequency: int = 1,
         checkpoint_frequency: int = 0,
@@ -64,10 +62,7 @@ class Stage2Trainer(BaseTrainer):
         tvd_weight: float = 15.0,
         tvd_milestones: Optional[list] = None,
         tvd_weights: Optional[list] = None,
-        validation_enabled: bool = False,
-        val_dataset: Optional[Stage2Dataset] = None,
         detach_after_streaming: bool = False,
-        ema_alpha: float = 0.1,
     ):
         """
         Initialize Stage 2 trainer.
@@ -92,6 +87,8 @@ class Stage2Trainer(BaseTrainer):
             Basis vectors for lattice Boltzmann method
         num_rollout : int
             Number of rollout steps per sequence
+        val_dataset : Stage2Dataset
+            Validation dataset (required)
         save_model : bool, optional
             Whether to save model checkpoints (default: True)
         save_frequency : int, optional
@@ -112,14 +109,8 @@ class Stage2Trainer(BaseTrainer):
             Epoch milestones for TVD weight scheduling
         tvd_weights : Optional[list], optional
             TVD weights corresponding to milestones
-        validation_enabled : bool, optional
-            Whether to run validation loop (default: False)
-        val_dataset : Optional[Stage2Dataset], optional
-            Validation dataset (required if validation_enabled=True)
         detach_after_streaming : bool, optional
             Whether to detach gradients after streaming (default: False)
-        ema_alpha : float, optional
-            EMA smoothing factor for batch loss (default: 0.1)
         """
         super().__init__(
             model=model,
@@ -138,6 +129,7 @@ class Stage2Trainer(BaseTrainer):
         self.basis = basis
         self.num_rollout = num_rollout
         self.case_name = case_name
+        self.log = getLogger(__name__)
 
         # TVD settings
         self.tvd_enabled = tvd_enabled
@@ -145,18 +137,11 @@ class Stage2Trainer(BaseTrainer):
         self.tvd_milestones = tvd_milestones or []
         self.tvd_weights = tvd_weights or [tvd_weight]
 
-        # Validation settings
-        self.validation_enabled = validation_enabled
+        # Validation dataset (always required)
         self.val_dataset = val_dataset
-        if validation_enabled and val_dataset is None:
-            raise ValueError("val_dataset must be provided if validation_enabled=True")
 
         # Detaching behavior
         self.detach_after_streaming = detach_after_streaming
-
-        # EMA tracking (always enabled by default)
-        self.ema_alpha = ema_alpha
-        self.ema_batch_loss = None
 
     def _handle_obstacle_and_bc(self, Fi, Gi, rho, ux, uy, T, khi, zetax, zetay):
         """
@@ -228,7 +213,6 @@ class Stage2Trainer(BaseTrainer):
         self.model.train()
         loss_epoch = 0.0
         num_batches = 0
-        batch_losses = []
 
         # Get TVD weight for this epoch
         if self.tvd_enabled:
@@ -246,95 +230,97 @@ class Stage2Trainer(BaseTrainer):
             leave=False,
             disable=False,
         )
-        for batch_idx, (F_seq, G_seq, Feq_seq, Geq_seq) in enumerate(batch_pbar):
-            self.optimizer.zero_grad()
-            total_loss = 0.0
 
-            F_seq = F_seq.to(self.device)
-            G_seq = G_seq.to(self.device)
-            Fi0 = F_seq[0, 0, ...]
-            Gi0 = G_seq[0, 0, ...]
+        with logging_redirect_tqdm(self.log):
+            for batch_idx, (F_seq, G_seq, Feq_seq, Geq_seq) in enumerate(batch_pbar):
+                self.optimizer.zero_grad()
+                total_loss = 0.0
 
-            # Initialize TVD tracking variables for this batch
-            if self.tvd_enabled:
-                ux_old = None
-                T_old = None
-                rho_old = None
+                F_seq = F_seq.to(self.device)
+                G_seq = G_seq.to(self.device)
+                Fi0 = F_seq[0, 0, ...]
+                Gi0 = G_seq[0, 0, ...]
 
-            for rollout in range(self.num_rollout):
-                # Get macroscopic variables
-                rho, ux, uy, E = self.solver.get_macroscopic(Fi0, Gi0)
-                T = self.solver.get_temp_from_energy(ux, uy, E)
+                # Initialize TVD tracking variables for this batch
+                if self.tvd_enabled:
+                    ux_old = None
+                    T_old = None
+                    rho_old = None
 
-                # Get equilibrium F
-                Feq = self.solver.get_Feq(rho, ux, uy, T)
+                for rollout in range(self.num_rollout):
+                    # Get macroscopic variables
+                    rho, ux, uy, E = self.solver.get_macroscopic(Fi0, Gi0)
+                    T = self.solver.get_temp_from_energy(ux, uy, E)
 
-                # Prepare model input
-                inputs = torch.stack(
-                    [
-                        rho.unsqueeze(0),
-                        ux.unsqueeze(0),
-                        uy.unsqueeze(0),
-                        T.unsqueeze(0),
-                    ],
-                    dim=1,
-                ).to(self.device)
+                    # Get equilibrium F
+                    Feq = self.solver.get_Feq(rho, ux, uy, T)
 
-                # Model prediction
-                Geq_pred = self.model(inputs, self.basis)
-                
-                Geq_target = Geq_seq[0, rollout].to(self.device)
+                    # Prepare model input
+                    inputs = torch.stack(
+                        [
+                            rho.unsqueeze(0),
+                            ux.unsqueeze(0),
+                            uy.unsqueeze(0),
+                            T.unsqueeze(0),
+                        ],
+                        dim=1,
+                    ).to(self.device)
 
-                # Compute loss
-                inner_loss = l2_error(
-                    Geq_pred, Geq_target.permute(1, 2, 0).reshape(-1, 9)
-                )
-                total_loss += inner_loss
+                    # Model prediction
+                    Geq_pred = self.model(inputs, self.basis)
+                    
+                    Geq_target = Geq_seq[0, rollout].to(self.device)
 
-                # TVD loss (if enabled and not first rollout)
-                if self.tvd_enabled and rollout > 0:
-                    loss_TVD = (
-                        TVD_norm(T, T_old)
-                        + TVD_norm(ux, ux_old)
-                        + TVD_norm(rho, rho_old)
+                    # Compute loss
+                    inner_loss = l2_error(
+                        Geq_pred, Geq_target.permute(1, 2, 0).reshape(-1, 9)
                     )
-                    total_loss += current_tvd_weight * loss_TVD
-                    ux_old = ux.clone()
-                    T_old = T.clone()
-                    rho_old = rho.clone()
-                elif self.tvd_enabled and rollout == 0:
-                    # Initialize tracking variables
-                    ux_old = ux.clone()
-                    T_old = T.clone()
-                    rho_old = rho.clone()
+                    total_loss += inner_loss
 
-                # Collision
-                Geq_pred_reshaped = Geq_pred.permute(1, 0).reshape(
-                    self.solver.Qn, self.solver.Y, self.solver.X
-                )
-                Fi0, Gi0 = self.solver.collision(
-                    Fi0, Gi0, Feq, Geq_pred_reshaped, rho, ux, uy, T
-                )
+                    # TVD loss (if enabled and not first rollout)
+                    if self.tvd_enabled and rollout > 0:
+                        loss_TVD = (
+                            TVD_norm(T, T_old)
+                            + TVD_norm(ux, ux_old)
+                            + TVD_norm(rho, rho_old)
+                        )
+                        total_loss += current_tvd_weight * loss_TVD
+                        ux_old = ux.clone()
+                        T_old = T.clone()
+                        rho_old = rho.clone()
+                    elif self.tvd_enabled and rollout == 0:
+                        # Initialize tracking variables
+                        ux_old = ux.clone()
+                        T_old = T.clone()
+                        rho_old = rho.clone()
 
-                # Streaming
-                Fi, Gi = self.solver.streaming(Fi0, Gi0)
+                    # Collision
+                    Geq_pred_reshaped = Geq_pred.permute(1, 0).reshape(
+                        self.solver.Qn, self.solver.Y, self.solver.X
+                    )
+                    Fi0, Gi0 = self.solver.collision(
+                        Fi0, Gi0, Feq, Geq_pred_reshaped, rho, ux, uy, T
+                    )
 
-                # Handle obstacle and BC (Cylinder cases)
-                khi = detach(torch.zeros_like(ux))
-                zetax = detach(torch.zeros_like(ux))
-                zetay = detach(torch.zeros_like(ux))
-                
-                Fi, Gi = self._handle_obstacle_and_bc(
-                    Fi, Gi, rho, ux, uy, T, khi, zetax, zetay
-                )
+                    # Streaming
+                    Fi, Gi = self.solver.streaming(Fi0, Gi0)
 
-                # Detach after streaming (SOD case)
-                if self.detach_after_streaming:
-                    Fi0 = Fi.detach()
-                    Gi0 = Gi.detach()
-                else:
-                    Fi0 = Fi.clone()
-                    Gi0 = Gi.clone()
+                    # Handle obstacle and BC (Cylinder cases)
+                    khi = detach(torch.zeros_like(ux))
+                    zetax = detach(torch.zeros_like(ux))
+                    zetay = detach(torch.zeros_like(ux))
+                    
+                    Fi, Gi = self._handle_obstacle_and_bc(
+                        Fi, Gi, rho, ux, uy, T, khi, zetax, zetay
+                    )
+
+                    # Detach after streaming (SOD case)
+                    if self.detach_after_streaming:
+                        Fi0 = Fi.detach()
+                        Gi0 = Gi.detach()
+                    else:
+                        Fi0 = Fi.clone()
+                        Gi0 = Gi.clone()
 
             # Backward pass
             total_loss.backward()
@@ -344,48 +330,26 @@ class Stage2Trainer(BaseTrainer):
             # Track batch loss
             batch_loss = total_loss.item() / self.num_rollout
             loss_epoch += total_loss.item()
-            batch_losses.append(batch_loss)
             num_batches += 1
-
-            # Update EMA
-            if self.ema_batch_loss is None:
-                self.ema_batch_loss = batch_loss
-            else:
-                self.ema_batch_loss = (
-                    self.ema_alpha * batch_loss
-                    + (1 - self.ema_alpha) * self.ema_batch_loss
-                )
-
-            # Calculate std of batch losses
-            if len(batch_losses) > 1:
-                batch_std = float(np.std(batch_losses))
-            else:
-                batch_std = 0.0
 
             # Update inner progress bar
             batch_pbar.set_postfix(
                 {
                     "batch": batch_idx,
-                    "train_loss_ema": f"{self.ema_batch_loss:.6f}",
-                    "train_loss_std": f"{batch_std:.6f}",
+                    "loss": f"{batch_loss:.6f}",
                 }
             )
 
         avg_loss = loss_epoch / num_batches if num_batches > 0 else 0.0
 
-        # Validation (if enabled)
-        val_loss = None
-        if self.validation_enabled:
-            val_loss = self._validate()
-            print(
-                f"Epoch: {epoch}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
-            )
-        else:
-            if epoch % 50 == 0 and epoch > 0:
-                print(f"Epoch: {epoch}, Loss: {avg_loss:.6f}")
+        # Validation (always enabled)
+        val_loss = self._validate()
+        print(
+            f"Epoch: {epoch}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
+        )
 
-        # Use validation loss for best model tracking if available
-        return val_loss if val_loss is not None else avg_loss
+        # Use validation loss for best model tracking
+        return val_loss
 
     def _validate(self) -> float:
         """
@@ -462,7 +426,7 @@ class Stage2Trainer(BaseTrainer):
         Parameters
         ----------
         current_loss : float
-            Current loss value (validation loss if validation enabled, else train loss)
+            Current validation loss value
         epoch : int
             Current epoch
         """
@@ -485,27 +449,15 @@ class Stage2Trainer(BaseTrainer):
 
                 # Save new checkpoint with case-specific naming
                 if self.case_name:
-                    if self.validation_enabled:
-                        save_path = os.path.join(
-                            self.model_dir,
-                            f"best_model_{self.case_name}_epoch_{epoch+1}_top_{max_index+1}_val_loss_{current_loss:.6f}.pt",
-                        )
-                    else:
-                        save_path = os.path.join(
-                            self.model_dir,
-                            f"best_model_{self.case_name}_epoch_{epoch+1}_top_{max_index+1}_{current_loss:.12f}.pt",
-                        )
+                    save_path = os.path.join(
+                        self.model_dir,
+                        f"best_model_{self.case_name}_epoch_{epoch+1}_top_{max_index+1}_val_loss_{current_loss:.6f}.pt",
+                    )
                 else:
-                    if self.validation_enabled:
-                        save_path = os.path.join(
-                            self.model_dir,
-                            f"best_model_epoch_{epoch+1}_top_{max_index+1}_val_loss_{current_loss:.6f}.pt",
-                        )
-                    else:
-                        save_path = os.path.join(
-                            self.model_dir,
-                            f"best_model_epoch_{epoch+1}_top_{max_index+1}_{current_loss:.12f}.pt",
-                        )
+                    save_path = os.path.join(
+                        self.model_dir,
+                        f"best_model_epoch_{epoch+1}_top_{max_index+1}_val_loss_{current_loss:.6f}.pt",
+                    )
                 torch.save(self.best_models[max_index], save_path)
                 print(f"Top {max_index+1} model saved to: {save_path}")
                 self.best_model_paths[max_index] = save_path

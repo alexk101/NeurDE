@@ -15,12 +15,8 @@ tvd:
     weights: []      # Corresponding weights
 
 validation:
-  enabled: false
   dataset_size: 100  # Size of validation dataset
 
 # Detaching behavior (Stage 2 only)
 # SOD detaches after streaming, Cylinder doesn't
 detach_after_streaming: false
-
-# EMA tracking (always enabled by default)
-ema_alpha: 0.1

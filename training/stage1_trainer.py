@@ -10,6 +10,8 @@ import torch
 import torch.nn as nn
 from typing import Optional
 from torch.utils.data import DataLoader
+from tqdm.contrib.logging import logging_redirect_tqdm
+from logging import getLogger
 from tqdm import tqdm
 
 from .base import BaseTrainer
@@ -94,6 +96,7 @@ class Stage1Trainer(BaseTrainer):
         self.dataloader = dataloader
         self.basis = basis
         self.case_name = case_name
+        self.log = getLogger(__name__)
 
     def train_epoch(self, epoch: int) -> float:
         """
@@ -121,35 +124,38 @@ class Stage1Trainer(BaseTrainer):
             leave=False,
             disable=False,
         )
-        for rho_batch, ux_batch, uy_batch, T_batch, Geq_batch in batch_pbar:
-            # Prepare input data: stack (rho, ux, uy, T) into (batch, 4, Y, X)
-            input_data = torch.stack(
-                [rho_batch, ux_batch, uy_batch, T_batch], dim=1
-            ).to(self.device)
 
-            # Prepare targets: reshape Geq from (batch, Q, Y, X) to (batch*Y*X, Q)
-            targets = Geq_batch.permute(0, 2, 3, 1).reshape(-1, 9).to(self.device)
 
-            # Forward pass
-            self.optimizer.zero_grad()
-            Geq_pred = self.model(input_data, self.basis)
+        with logging_redirect_tqdm(self.log):
+            for rho_batch, ux_batch, uy_batch, T_batch, Geq_batch in batch_pbar:
+                # Prepare input data: stack (rho, ux, uy, T) into (batch, 4, Y, X)
+                input_data = torch.stack(
+                    [rho_batch, ux_batch, uy_batch, T_batch], dim=1
+                ).to(self.device)
 
-            # Compute loss
-            loss = l2_error(Geq_pred, targets)
+                # Prepare targets: reshape Geq from (batch, Q, Y, X) to (batch*Y*X, Q)
+                targets = Geq_batch.permute(0, 2, 3, 1).reshape(-1, 9).to(self.device)
 
-            # Backward pass
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            self.optimizer.step()
+                # Forward pass
+                self.optimizer.zero_grad()
+                Geq_pred = self.model(input_data, self.basis)
 
-            if self.scheduler is not None:
-                self.scheduler.step()
+                # Compute loss
+                loss = l2_error(Geq_pred, targets)
 
-            loss_epoch += loss.item()
-            num_batches += 1
+                # Backward pass
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                self.optimizer.step()
 
-            # Update inner progress bar
-            batch_pbar.set_postfix({"loss": f"{loss.item():.6f}"})
+                if self.scheduler is not None:
+                    self.scheduler.step()
+
+                loss_epoch += loss.item()
+                num_batches += 1
+
+                # Update inner progress bar
+                batch_pbar.set_postfix({"loss": f"{loss.item():.6f}"})
 
         avg_loss = loss_epoch / num_batches if num_batches > 0 else 0.0
 
