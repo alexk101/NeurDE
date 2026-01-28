@@ -18,14 +18,24 @@ stage: 1
 device: 0  # GPU index, or -1 for CPU
 
 # Model compilation
-compile: false
+compile: true
 
 # Model saving
 save_model: true
-save_frequency: 1
+save_frequency: 1  # Minimum epochs between best model saves
+
+# Checkpointing (full checkpoints with optimizer/scheduler state)
+checkpoint_frequency: 0  # Save full checkpoint every N epochs (0 = disabled)
+keep_checkpoints: 5  # Number of periodic checkpoints to keep (old ones are deleted)
+
+# Resume training
+resume_from: null  # Path to checkpoint to resume from (full checkpoint format)
 
 # Pretrained model (for Stage 2)
-pretrained_path: null  # Path to pretrained Stage 1 model checkpoint
+pretrained_path: null  # Path to pretrained Stage 1 model checkpoint (state_dict only)
+
+run_name: 'default' # name to use for experiment dir + slurm job + wandb
+run_tag: '00' # tag to identify a particular run
 
 # Data configuration
 num_samples: 500

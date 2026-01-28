@@ -128,6 +128,9 @@ def main(cfg: DictConfig) -> None:
         basis=basis,
         save_model=cfg.save_model,
         save_frequency=cfg.save_frequency,
+        checkpoint_frequency=cfg.get("checkpoint_frequency", 0),
+        keep_checkpoints=cfg.get("keep_checkpoints", 5),
+        resume_from=cfg.get("resume_from"),
         case_name=case_name,
     )
 

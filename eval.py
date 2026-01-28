@@ -21,7 +21,7 @@ from model.model import NeurDE
 from training import create_basis
 from utils.solver import create_solver
 from utils.loss import l2_error
-from utils.core import set_seed, detach
+from utils.core import set_seed, detach, adapt_checkpoint_keys
 from utils.plotting import plot_cylinder_results, plot_sod_results
 
 
@@ -143,18 +143,9 @@ def main(cfg: DictConfig) -> None:
     if cfg.trained_path:
         checkpoint = torch.load(cfg.trained_path, map_location=device)
 
-        if cfg.compile:
-            # Handle compiled model format
-            new_state_dict = {}
-            for k, v in checkpoint.items():
-                if k.startswith("_orig_mod."):
-                    new_k = k.replace("_orig_mod.", "")
-                    new_state_dict[new_k] = v
-                else:
-                    new_state_dict[k] = v
-            model.load_state_dict(new_state_dict)
-        else:
-            model.load_state_dict(checkpoint)
+        # Adapt checkpoint keys to match model format (handles torch.compile prefix)
+        state_dict = adapt_checkpoint_keys(checkpoint, model)
+        model.load_state_dict(state_dict)
 
         print(f"Trained model loaded from {cfg.trained_path}")
     else:

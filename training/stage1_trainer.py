@@ -42,6 +42,9 @@ class Stage1Trainer(BaseTrainer):
         basis: torch.Tensor,
         save_model: bool = True,
         save_frequency: int = 1,
+        checkpoint_frequency: int = 0,
+        keep_checkpoints: int = 5,
+        resume_from: Optional[str] = None,
         case_name: Optional[str] = None,
     ):
         """
@@ -67,6 +70,12 @@ class Stage1Trainer(BaseTrainer):
             Whether to save model checkpoints (default: True)
         save_frequency : int, optional
             Minimum epochs between saves (default: 1)
+        checkpoint_frequency : int, optional
+            Save full checkpoint every N epochs (0 = disabled, default: 0)
+        keep_checkpoints : int, optional
+            Number of periodic checkpoints to keep (default: 5)
+        resume_from : Optional[str], optional
+            Path to checkpoint to resume from (default: None)
         case_name : Optional[str], optional
             Case name for model save naming (e.g., "1", "2" for SOD cases)
         """
@@ -78,6 +87,9 @@ class Stage1Trainer(BaseTrainer):
             model_dir=model_dir,
             save_model=save_model,
             save_frequency=save_frequency,
+            checkpoint_frequency=checkpoint_frequency,
+            keep_checkpoints=keep_checkpoints,
+            resume_from=resume_from,
         )
         self.dataloader = dataloader
         self.basis = basis
@@ -159,9 +171,11 @@ class Stage1Trainer(BaseTrainer):
             self.best_losses[max_index] = current_loss
             self.best_models[max_index] = self.model.state_dict()
 
+            # Always save the first best model, then respect save_frequency for subsequent saves
+            is_first_save = self.best_model_paths[max_index] is None
             if (
                 self.save_model
-                and self.epochs_since_last_save[max_index] >= self.save_frequency
+                and (is_first_save or self.epochs_since_last_save[max_index] >= self.save_frequency)
             ):
                 # Remove old checkpoint if exists
                 if self.best_model_paths[max_index] and os.path.exists(

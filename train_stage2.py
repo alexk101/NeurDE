@@ -19,7 +19,7 @@ from utils.datasets import RolloutBatchDataset, Stage2Dataset
 from utils.data_io import load_data_stage_2
 from utils.optimizer import dispatch_optimizer, get_scheduler
 from utils.solver import create_solver
-from utils.core import set_seed
+from utils.core import set_seed, adapt_checkpoint_keys
 from torch.utils.data import DataLoader
 
 
@@ -181,16 +181,9 @@ def main(cfg: DictConfig) -> None:
         checkpoint_path = cfg.pretrained_path
         checkpoint = torch.load(checkpoint_path, map_location=device)
 
-        # Handle compiled model format (check for _orig_mod. prefix regardless of compile status)
-        # This matches the old codebase behavior
-        new_state_dict = {}
-        for k, v in checkpoint.items():
-            if k.startswith("_orig_mod."):
-                new_k = k.replace("_orig_mod.", "")
-                new_state_dict[new_k] = v
-            else:
-                new_state_dict[k] = v
-        model.load_state_dict(new_state_dict)
+        # Adapt checkpoint keys to match model format (handles torch.compile prefix)
+        state_dict = adapt_checkpoint_keys(checkpoint, model)
+        model.load_state_dict(state_dict)
 
         print(f"Pretrained model loaded from {checkpoint_path}")
 
@@ -239,6 +232,9 @@ def main(cfg: DictConfig) -> None:
         num_rollout=cfg.training.N,
         save_model=cfg.save_model,
         save_frequency=cfg.save_frequency,
+        checkpoint_frequency=cfg.get("checkpoint_frequency", 0),
+        keep_checkpoints=cfg.get("keep_checkpoints", 5),
+        resume_from=cfg.get("resume_from"),
         case_name=case_name,
         tvd_enabled=tvd_enabled,
         tvd_weight=tvd_weight,
