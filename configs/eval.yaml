@@ -18,7 +18,7 @@ trained_path: null  # Path to trained model checkpoint
 device: 0  # GPU index, or -1 for CPU
 
 # Model compilation
-compile: false
+compile: true
 
 # Output directory
 output_dir: images  # Base directory for output images

@@ -13,3 +13,4 @@ data
 .pytest_cache
 outputs
 data_base
+.env

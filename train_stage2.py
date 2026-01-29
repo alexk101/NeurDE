@@ -8,10 +8,13 @@ Example usage:
     python train_stage2.py case=sod_shock_tube case_number=2 training=stage2 training.tvd.enabled=true
 """
 
+import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import torch
 import numpy as np
+
+from hydra.core.hydra_config import HydraConfig
 
 from model.model import NeurDE
 from training import Stage2Trainer, create_basis
@@ -201,6 +204,13 @@ def main(cfg: DictConfig) -> None:
         config=OmegaConf.to_container(cfg.scheduler, resolve=True),
     )
 
+    # Resolve model_dir under Hydra output dir so checkpoints live in outputs/<run>/
+    try:
+        hydra_out = HydraConfig.get().runtime.output_dir
+        model_dir = os.path.join(hydra_out, cfg.training.model_dir)
+    except Exception:
+        model_dir = cfg.training.model_dir
+
     # Get case name for model saving
     case_name = None
     if case_cfg.case_type == "sod_shock_tube":
@@ -225,7 +235,7 @@ def main(cfg: DictConfig) -> None:
         dataloader=train_dataloader,
         solver=solver,
         device=device,
-        model_dir=cfg.training.model_dir,
+        model_dir=model_dir,
         basis=basis,
         num_rollout=cfg.training.N,
         val_dataset=val_dataset,
@@ -240,6 +250,7 @@ def main(cfg: DictConfig) -> None:
         tvd_milestones=tvd_milestones,
         tvd_weights=tvd_weights,
         detach_after_streaming=detach_after_streaming,
+        cfg=cfg,
     )
 
     # Print configuration

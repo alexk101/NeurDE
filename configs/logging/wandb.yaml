@@ -1,0 +1,24 @@
+# @package logging
+# Weights & Biases experiment tracking
+
+backend: "wandb"
+
+log_to_screen: true
+terminal_batch_log_interval: 50
+
+tracker:
+  enabled: true
+  batch_log_interval: 10
+
+  # Image logging (Stage 2 only: validation rollout comparison plots)
+  log_images: true
+  image_log_interval: 1   # log one image every N epochs
+  image_log_max_count: 20  # cap total images per run (0 = no cap)
+
+  # WandB-specific
+  project: "NeurDE"
+  entity: "akiefer-utk"
+  run_name: "${run_name}"
+  run_tag: "${run_tag}"
+
+  extra_init_kwargs: {}

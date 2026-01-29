@@ -15,7 +15,6 @@ import torch
 import numpy as np
 import h5py
 import os
-from tqdm import tqdm
 
 from model.model import NeurDE
 from training import create_basis
@@ -184,7 +183,7 @@ def main(cfg: DictConfig) -> None:
     total_loss = 0.0
 
     with torch.no_grad():
-        for i in tqdm(range(cfg.num_steps), desc="Evaluation"):
+        for i in range(cfg.num_steps):
             # Get macroscopic variables
             rho, ux, uy, E = solver.get_macroscopic(Fi0.squeeze(0), Gi0.squeeze(0))
             T = solver.get_temp_from_energy(ux, uy, E)

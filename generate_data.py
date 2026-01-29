@@ -16,7 +16,6 @@ import torch
 import numpy as np
 import h5py
 import os
-from tqdm import tqdm
 
 from utils.solver import create_solver
 from utils.core import detach
@@ -154,7 +153,7 @@ def main(cfg: DictConfig) -> None:
 
     with torch.no_grad():
         batch_idx = 0
-        for i in tqdm(range(steps)):
+        for i in range(steps):
             # Store initial distributions in GPU batch buffer
             if device.type == "cuda":
                 batch_Fi0[batch_idx] = Fi0

@@ -68,6 +68,7 @@ NeurDE/
 │   ├── scheduler/          # Learning rate scheduler configs
 │   ├── dataset/            # Dataset configs (stage1, stage2)
 │   ├── training/          # Training configs (stage1, stage2)
+│   ├── logging/            # Experiment tracking (wandb, mlflow)
 │   └── config.yaml        # Main configuration file
 ├── model/                  # Unified model architecture
 │   └── model.py           # NeurDE model definition
@@ -119,6 +120,7 @@ All parameters are configured through Hydra configs in the `configs/` directory:
 - **Model configs** (`configs/model/`): Architecture parameters
 - **Training configs** (`configs/training/`): Training hyperparameters
 - **Optimizer/Scheduler configs**: Optimization settings
+- **Logging configs** (`configs/logging/`): Experiment tracking (WandB or MLflow) and terminal log intervals
 
 ### Data Generation
 
@@ -287,6 +289,50 @@ python train_stage2.py \
 - `dataset.shuffle`: Whether to shuffle data
 - `dataset.num_workers`: Number of DataLoader workers
 - `dataset.pin_memory`: Whether to pin memory for faster GPU transfer
+
+### Experiment Tracking
+
+Training can log metrics and hyperparameters to an experiment-tracking backend. Two backends are supported: **Weights & Biases (WandB)** and **MLflow**. The backend and its options are controlled by the `logging` config group in `configs/logging/`.
+
+**Selecting a backend**
+
+- Use the `logging` default in `configs/config.yaml`, or override from the command line:
+  ```bash
+  python train_stage1.py case=cylinder logging=wandb
+  python train_stage1.py case=cylinder logging=mlflow
+  ```
+- Shared options for all backends:
+  - `log_to_screen`: whether to print epoch/batch summaries to the terminal
+  - `terminal_batch_log_interval`: log to terminal every N batches (e.g. `50`)
+  - `tracker.enabled`: set to `false` to disable sending metrics to the backend
+  - `tracker.batch_log_interval`: send metrics to the backend every N batches (can differ from terminal interval)
+  - `tracker.project`: experiment/project name
+  - `tracker.run_name`, `tracker.run_tag`: resolved from global `run_name` and `run_tag` in the main config
+
+**WandB**
+
+- Config file: `configs/logging/wandb.yaml`
+- Install: `uv sync --group wandb` (or use the project’s optional dependency).
+- Set in the logging config’s `tracker` section:
+  - `entity`: your WandB username or team
+  - `project`: WandB project name
+- Log in once (e.g. `wandb login`) or set `WANDB_API_KEY` in the environment.
+
+**MLflow**
+
+- Config file: `configs/logging/mlflow.yaml`.
+- Install: `uv sync --group mlflow`.
+- **Tracking URI** (required for a remote server): set `tracker.tracking_uri` in the logging config, e.g.:
+  - `http://localhost:5000` for a local server started with `mlflow server --port 5000`
+  - `https://your-server:5000` for a remote MLflow server
+- For a **remote server with HTTPS and self-signed certificates**, set in the logging config:
+  - `tracker.insecure_tls: true` so the client skips TLS verification (use only in controlled environments).
+- **Authentication**: username can be set in the config under `tracker.username`. The password must be provided via the environment variable `MLFLOW_TRACKING_PASSWORD` (never put the password in the config file). The trainer loads a `.env` file at startup (using `python-dotenv` with `override=False`), so you can put `MLFLOW_TRACKING_PASSWORD=your_password` in a `.env` file in the project root instead of exporting it in the shell.
+- See [MLflow self-hosting](https://mlflow.org/docs/latest/self-hosting/) for running your own tracking server.
+
+**Disabling experiment tracking**
+
+- Set `tracker.enabled=false` in your logging config, e.g. `python train_stage1.py logging=wandb logging.tracker.enabled=false`. Terminal logging is independent and controlled by `log_to_screen` and `terminal_batch_log_interval`.
 
 ## Important Notes
 

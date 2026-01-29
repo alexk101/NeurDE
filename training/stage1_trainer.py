@@ -6,13 +6,11 @@ equilibrium state data (predicting Geq from macroscopic variables).
 """
 
 import os
+from omegaconf import DictConfig
 import torch
 import torch.nn as nn
 from typing import Optional
 from torch.utils.data import DataLoader
-from tqdm.contrib.logging import logging_redirect_tqdm
-from logging import getLogger
-from tqdm import tqdm
 
 from .base import BaseTrainer
 from utils.loss import l2_error
@@ -48,6 +46,7 @@ class Stage1Trainer(BaseTrainer):
         keep_checkpoints: int = 5,
         resume_from: Optional[str] = None,
         case_name: Optional[str] = None,
+        cfg: DictConfig = None,
     ):
         """
         Initialize Stage 1 trainer.
@@ -80,6 +79,8 @@ class Stage1Trainer(BaseTrainer):
             Path to checkpoint to resume from (default: None)
         case_name : Optional[str], optional
             Case name for model save naming (e.g., "1", "2" for SOD cases)
+        cfg : DictConfig
+            Hydra configuration object
         """
         super().__init__(
             model=model,
@@ -92,11 +93,11 @@ class Stage1Trainer(BaseTrainer):
             checkpoint_frequency=checkpoint_frequency,
             keep_checkpoints=keep_checkpoints,
             resume_from=resume_from,
+            cfg=cfg,
         )
         self.dataloader = dataloader
         self.basis = basis
         self.case_name = case_name
-        self.log = getLogger(__name__)
 
     def train_epoch(self, epoch: int) -> float:
         """
@@ -116,52 +117,81 @@ class Stage1Trainer(BaseTrainer):
         loss_epoch = 0.0
         num_batches = 0
 
-        # Create inner progress bar for batches (nested under epoch bar)
-        batch_pbar = tqdm(
-            self.dataloader,
-            desc=f"Epoch {epoch}",
-            position=1,
-            leave=False,
-            disable=False,
-        )
+        for batch_idx, (rho_batch, ux_batch, uy_batch, T_batch, Geq_batch) in enumerate(
+            self.dataloader
+        ):
+            # Prepare input data: stack (rho, ux, uy, T) into (batch, 4, Y, X)
+            input_data = torch.stack(
+                [rho_batch, ux_batch, uy_batch, T_batch], dim=1
+            ).to(self.device)
 
+            # Prepare targets: reshape Geq from (batch, Q, Y, X) to (batch*Y*X, Q)
+            targets = Geq_batch.permute(0, 2, 3, 1).reshape(-1, 9).to(self.device)
 
-        with logging_redirect_tqdm(self.log):
-            for rho_batch, ux_batch, uy_batch, T_batch, Geq_batch in batch_pbar:
-                # Prepare input data: stack (rho, ux, uy, T) into (batch, 4, Y, X)
-                input_data = torch.stack(
-                    [rho_batch, ux_batch, uy_batch, T_batch], dim=1
-                ).to(self.device)
+            # Forward pass
+            self.optimizer.zero_grad()
+            Geq_pred = self.model(input_data, self.basis)
 
-                # Prepare targets: reshape Geq from (batch, Q, Y, X) to (batch*Y*X, Q)
-                targets = Geq_batch.permute(0, 2, 3, 1).reshape(-1, 9).to(self.device)
+            # Compute loss
+            loss = l2_error(Geq_pred, targets)
 
-                # Forward pass
-                self.optimizer.zero_grad()
-                Geq_pred = self.model(input_data, self.basis)
+            # Backward pass
+            loss.backward()
+            self.adaptive_clipper.step(self, self.model)
 
-                # Compute loss
-                loss = l2_error(Geq_pred, targets)
+            # Grad and weight norms once per epoch (use last batch's gradients)
+            is_last_batch = batch_idx == len(self.dataloader) - 1
+            if is_last_batch:
+                with torch.no_grad():
+                    grad_sq = self.get_norm(self.model, "grad")
+                    weight_sq = self.get_norm(self.model, "weights")
+                self._last_epoch_grad_norm_avg = float(grad_sq.sqrt().item())
+                self._last_epoch_weight_norm_avg = float(weight_sq.sqrt().item())
 
-                # Backward pass
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.optimizer.step()
+            self.optimizer.step()
 
-                if self.scheduler is not None:
-                    self.scheduler.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
 
-                loss_epoch += loss.item()
-                num_batches += 1
+            loss_epoch += loss.item()
+            num_batches += 1
 
-                # Update inner progress bar
-                batch_pbar.set_postfix({"loss": f"{loss.item():.6f}"})
+            # Global step for experiment tracking
+            self.global_step += 1
+
+            # Terminal logging every N batches
+            if (
+                self.log_to_screen
+                and self.terminal_batch_log_interval > 0
+                and (batch_idx + 1) % self.terminal_batch_log_interval == 0
+            ):
+                self.log.info(
+                    f"Epoch {epoch + 1} Batch {batch_idx + 1}/{len(self.dataloader)} "
+                    f"- loss={loss.item():.6f}"
+                )
+
+            # Experiment tracker logging every M batches (step_metric so WandB uses batch x-axis)
+            if (
+                self.tracker_batch_log_interval > 0
+                and (batch_idx + 1) % self.tracker_batch_log_interval == 0
+            ):
+                metrics = {"train/batch_loss": float(loss.item())}
+                grad_stats = self.adaptive_clipper.stats_for_logging(
+                    warn=False, logger=self.log
+                )
+                metrics.update(grad_stats)
+                self.tracker.log_metrics(
+                    metrics, step=self.global_step, step_metric="batch"
+                )
 
         avg_loss = loss_epoch / num_batches if num_batches > 0 else 0.0
+        if num_batches == 0:
+            self._last_epoch_grad_norm_avg = None
+            self._last_epoch_weight_norm_avg = None
 
         return avg_loss
 
-    def update_best_models(self, current_loss: float, epoch: int):
+    def update_best_models(self, current_loss: float, epoch: int) -> bool:
         """
         Update top 3 best models with case-specific naming.
 
@@ -171,6 +201,11 @@ class Stage1Trainer(BaseTrainer):
             Current loss value
         epoch : int
             Current epoch
+
+        Returns
+        -------
+        bool
+            True if this epoch updated any of the top-3 best.
         """
         if current_loss < max(self.best_losses):
             max_index = self.best_losses.index(max(self.best_losses))
@@ -201,12 +236,14 @@ class Stage1Trainer(BaseTrainer):
                         f"best_model_epoch_{epoch+1}_top_{max_index+1}_loss_{current_loss:.6f}.pt",
                     )
                 torch.save(self.best_models[max_index], save_path)
-                print(f"Top {max_index+1} model saved to: {save_path}")
+                self.log.info(f"Top {max_index+1} model saved to: {save_path}")
                 self.best_model_paths[max_index] = save_path
                 self.epochs_since_last_save[max_index] = 0
             else:
                 self.epochs_since_last_save[max_index] += 1
+            return True
         else:
             # Increment all counters
             for i in range(3):
                 self.epochs_since_last_save[i] += 1
+            return False

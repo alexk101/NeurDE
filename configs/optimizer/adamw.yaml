@@ -2,5 +2,5 @@
 # AdamW optimizer configuration
 
 optimizer_type: AdamW
-lr: 1.0e-3
+lr: 1.0e-4
 weight_decay: 1e-4

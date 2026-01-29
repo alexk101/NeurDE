@@ -1,0 +1,26 @@
+# @package logging
+backend: "mlflow"
+log_to_screen: true
+terminal_batch_log_interval: 50
+
+tracker:
+  enabled: true
+  batch_log_interval: 10
+
+  # Image logging (Stage 2 only: validation rollout comparison plots)
+  log_images: true
+  image_log_interval: 1
+  image_log_max_count: 20
+
+  # The HTTPS address of your Caddy server
+  tracking_uri: "https://192.168.50.34" 
+
+  # Hybrid Auth: Username in config, Password in ENV
+  username: "alexk101" 
+
+  # Set to true since you are using self-signed certs (tls internal)
+  insecure_tls: true 
+
+  project: "NeurDE"
+  run_name: "${run_name}"
+  run_tag: "${run_tag}"
