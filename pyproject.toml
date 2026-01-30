@@ -9,6 +9,7 @@ dependencies = [
     "hydra-core>=1.3.2",
     "matplotlib>=3.10.8",
     "pillow>=12.1.0",
+    "psutil>=7.2.2",
     "python-dotenv>=1.2.1",
     "pytorch-optimizer>=3.9.0",
     "pyyaml>=6.0.3",
@@ -24,6 +25,12 @@ wandb = [
 ]
 mlflow = [
   "mlflow>=3.7.0",
+]
+amd = [
+    "pyrsmi>=1.1.0",
+]
+nvidia = [
+    "nvidia-ml-py>=13.590.48",
 ]
 
 [[tool.uv.index]]

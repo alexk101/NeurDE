@@ -53,7 +53,6 @@ class ExperimentTracker(ABC):
         step_metric: Optional[str] = None,
     ) -> None:
         """Log a PIL image (e.g. validation plot). Default is no-op; backends override."""
-        pass
 
     @abstractmethod
     def finish(self) -> None:
@@ -202,10 +201,11 @@ class MlflowTracker(ExperimentTracker):
             log.warning(f"Could not import mlflow ({e}); falling back to NullTracker.")
             raise
 
+        mlflow.enable_system_metrics_logging()
         tracker_cfg = getattr(logging_cfg, "tracker", {})
-        
+
         # --- HYBRID CONFIGURATION HANDLING ---
-        
+
         # 1. TLS Verification (Config controls Env)
         # If using self-signed certs via Caddy, we must tell MLflow to ignore verification
         if tracker_cfg.get("insecure_tls", False):
@@ -216,10 +216,12 @@ class MlflowTracker(ExperimentTracker):
         username = tracker_cfg.get("username", None)
         if username:
             os.environ["MLFLOW_TRACKING_USERNAME"] = username
-            
+
         # Optional: Warn if password is missing when username is present
         if username and "MLFLOW_TRACKING_PASSWORD" not in os.environ:
-            log.warning("MLflow username set in config, but MLFLOW_TRACKING_PASSWORD not found in environment!")
+            log.warning(
+                "MLflow username set in config, but MLFLOW_TRACKING_PASSWORD not found in environment!"
+            )
 
         # 3. Tracking URI
         tracking_uri = tracker_cfg.get("tracking_uri", None)
@@ -306,6 +308,7 @@ class MlflowTracker(ExperimentTracker):
         except TypeError:
             # Older MLflow: log_image may not accept step; or use log_artifact
             import tempfile
+
             fd, path = tempfile.mkstemp(suffix=".png")
             try:
                 os.close(fd)
@@ -321,7 +324,9 @@ class MlflowTracker(ExperimentTracker):
         self._mlflow.end_run()
 
 
-def create_experiment_tracker(cfg: DictConfig, logger: logging.Logger) -> ExperimentTracker:
+def create_experiment_tracker(
+    cfg: DictConfig, logger: logging.Logger
+) -> ExperimentTracker:
     """
     Factory that creates an appropriate ExperimentTracker instance based on config.
 
@@ -333,10 +338,14 @@ def create_experiment_tracker(cfg: DictConfig, logger: logging.Logger) -> Experi
 
     backend = logging_cfg.get("backend", "none")
     tracker_cfg = getattr(logging_cfg, "tracker", None)
-    enabled = getattr(tracker_cfg, "enabled", False) if tracker_cfg is not None else False
+    enabled = (
+        getattr(tracker_cfg, "enabled", False) if tracker_cfg is not None else False
+    )
 
     if not enabled or backend in (None, "none"):
-        logger.info("Experiment tracking disabled (backend=none or tracker.enabled=false).")
+        logger.info(
+            "Experiment tracking disabled (backend=none or tracker.enabled=false)."
+        )
         return NullTracker()
 
     try:
@@ -345,11 +354,14 @@ def create_experiment_tracker(cfg: DictConfig, logger: logging.Logger) -> Experi
         elif backend == "mlflow":
             return MlflowTracker(cfg, logging_cfg)
         else:
-            logger.warning(f"Unknown experiment tracking backend '{backend}', disabling tracking.")
+            logger.warning(
+                f"Unknown experiment tracking backend '{backend}', disabling tracking."
+            )
             return NullTracker()
     except Exception:
         # Any failure during backend initialization should not break training;
         # we log a warning and fall back to a no-op tracker.
-        logger.warning(f"Failed to initialize experiment tracker backend '{backend}'. Using NullTracker instead.")
+        logger.warning(
+            f"Failed to initialize experiment tracker backend '{backend}'. Using NullTracker instead."
+        )
         return NullTracker()
-

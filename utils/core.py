@@ -52,7 +52,9 @@ def detach(x):
     return x.detach().cpu().numpy()
 
 
-def adapt_checkpoint_keys(checkpoint: Dict[str, Any], model: torch.nn.Module) -> Dict[str, Any]:
+def adapt_checkpoint_keys(
+    checkpoint: Dict[str, Any], model: torch.nn.Module
+) -> Dict[str, Any]:
     """
     Adapt checkpoint keys to match model format (handles torch.compile prefix mismatch).
 

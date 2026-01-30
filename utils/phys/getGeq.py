@@ -540,9 +540,7 @@ def levermore_Geq_Obs(
 
         # Compute distribution function with numerical stability
         exponent = (
-            khi[Obs]
-            + zetax[None, Obs] * ex[:, None]
-            + zetay[None, Obs] * ey[:, None]
+            khi[Obs] + zetax[None, Obs] * ex[:, None] + zetay[None, Obs] * ey[:, None]
         )
         f = w * np.exp(exponent)
 

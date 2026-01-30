@@ -214,9 +214,9 @@ class Stage1Trainer(BaseTrainer):
 
             # Always save the first best model, then respect save_frequency for subsequent saves
             is_first_save = self.best_model_paths[max_index] is None
-            if (
-                self.save_model
-                and (is_first_save or self.epochs_since_last_save[max_index] >= self.save_frequency)
+            if self.save_model and (
+                is_first_save
+                or self.epochs_since_last_save[max_index] >= self.save_frequency
             ):
                 # Remove old checkpoint if exists
                 if self.best_model_paths[max_index] and os.path.exists(

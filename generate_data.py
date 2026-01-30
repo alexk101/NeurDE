@@ -110,14 +110,14 @@ def main(cfg: DictConfig) -> None:
     # Run simulation with batched GPU memory utilization
     steps = cfg.get("steps", 1000)
     batch_size = cfg.get("transfer_batch_size", 100)  # Transfer to CPU every N steps
-    
+
     print(f"Running {steps} simulation steps for {case_cfg.case_type}...")
     print(f"Using GPU batch size: {batch_size} steps per CPU transfer")
 
     # Pre-allocate GPU tensors for batching (reduces memory fragmentation)
     Y, X = physics.Y, physics.X
     Qn = physics.Qn
-    
+
     # Storage for data (will accumulate on GPU, then transfer in batches)
     all_rho = []
     all_ux = []
@@ -142,10 +142,18 @@ def main(cfg: DictConfig) -> None:
         batch_ux = torch.zeros((batch_size, Y, X), device=device, dtype=torch.float32)
         batch_uy = torch.zeros((batch_size, Y, X), device=device, dtype=torch.float32)
         batch_T = torch.zeros((batch_size, Y, X), device=device, dtype=torch.float32)
-        batch_Feq = torch.zeros((batch_size, Qn, Y, X), device=device, dtype=torch.float32)
-        batch_Geq = torch.zeros((batch_size, Qn, Y, X), device=device, dtype=torch.float32)
-        batch_Fi0 = torch.zeros((batch_size, Qn, Y, X), device=device, dtype=torch.float32)
-        batch_Gi0 = torch.zeros((batch_size, Qn, Y, X), device=device, dtype=torch.float32)
+        batch_Feq = torch.zeros(
+            (batch_size, Qn, Y, X), device=device, dtype=torch.float32
+        )
+        batch_Geq = torch.zeros(
+            (batch_size, Qn, Y, X), device=device, dtype=torch.float32
+        )
+        batch_Fi0 = torch.zeros(
+            (batch_size, Qn, Y, X), device=device, dtype=torch.float32
+        )
+        batch_Gi0 = torch.zeros(
+            (batch_size, Qn, Y, X), device=device, dtype=torch.float32
+        )
     else:
         # CPU mode: no batching needed
         batch_rho = batch_ux = batch_uy = batch_T = None
@@ -183,8 +191,14 @@ def main(cfg: DictConfig) -> None:
             if case_cfg.case_type in ["cylinder", "cylinder_faster"]:
                 # Use solver's sparse_format attribute (set by create_solver)
                 Geq, khi, zetax, zetay = solver.get_Geq_Newton_solver(
-                    rho, ux, uy, T, khi0, zetax0, zetay0,
-                    sparse_format=solver.sparse_format
+                    rho,
+                    ux,
+                    uy,
+                    T,
+                    khi0,
+                    zetax0,
+                    zetay0,
+                    sparse_format=solver.sparse_format,
                 )
             else:
                 Geq, khi, zetax, zetay = solver.get_Geq_Newton_solver(
@@ -246,7 +260,7 @@ def main(cfg: DictConfig) -> None:
                 all_Geq.extend(batch_Geq.cpu().numpy())
                 all_Fi0.extend(batch_Fi0.cpu().numpy())
                 all_Gi0.extend(batch_Gi0.cpu().numpy())
-                
+
                 batch_idx = 0
                 torch.cuda.empty_cache()  # Free unused GPU memory
 

@@ -148,20 +148,16 @@ def main(cfg: DictConfig) -> None:
     # Create validation dataset (always required)
     val_dataset = Stage2Dataset(
         F=all_F[
-            cfg.num_samples : cfg.num_samples
-            + cfg.training.validation.dataset_size
+            cfg.num_samples : cfg.num_samples + cfg.training.validation.dataset_size
         ],
         G=all_G[
-            cfg.num_samples : cfg.num_samples
-            + cfg.training.validation.dataset_size
+            cfg.num_samples : cfg.num_samples + cfg.training.validation.dataset_size
         ],
         Feq=all_Feq[
-            cfg.num_samples : cfg.num_samples
-            + cfg.training.validation.dataset_size
+            cfg.num_samples : cfg.num_samples + cfg.training.validation.dataset_size
         ],
         Geq=all_Geq[
-            cfg.num_samples : cfg.num_samples
-            + cfg.training.validation.dataset_size
+            cfg.num_samples : cfg.num_samples + cfg.training.validation.dataset_size
         ],
     )
 

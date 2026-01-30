@@ -25,6 +25,7 @@ import urllib3
 # This stops the "InsecureRequestWarning" spam when using self-signed certs
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+
 def create_basis(Uax, Uay, device):
     """
     Create basis vectors for the lattice Boltzmann method.
@@ -98,7 +99,7 @@ class BaseTrainer(ABC):
         checkpoint_frequency: int = 0,
         keep_checkpoints: int = 5,
         resume_from: Optional[str] = None,
-        cfg: DictConfig = None
+        cfg: DictConfig = None,
     ):
         """
         Initialize base trainer.
@@ -163,9 +164,7 @@ class BaseTrainer(ABC):
                 getattr(logging_cfg, "terminal_batch_log_interval", 0) or 0
             )
             # Whether to actually log to screen
-            self.log_to_screen: bool = bool(
-                getattr(logging_cfg, "log_to_screen", True)
-            )
+            self.log_to_screen: bool = bool(getattr(logging_cfg, "log_to_screen", True))
 
             tracker_cfg = getattr(logging_cfg, "tracker", None)
             if tracker_cfg is not None:
@@ -220,7 +219,9 @@ class BaseTrainer(ABC):
         """
         Setup logging for the trainer.
         """
-        logging_cfg = getattr(self.cfg, "logging", None) if self.cfg is not None else None
+        logging_cfg = (
+            getattr(self.cfg, "logging", None) if self.cfg is not None else None
+        )
 
         if logging_cfg is not None:
             tracker_cfg = getattr(logging_cfg, "tracker", {})
@@ -235,7 +236,9 @@ class BaseTrainer(ABC):
                 if username:
                     os.environ["MLFLOW_TRACKING_USERNAME"] = username
                     if "MLFLOW_TRACKING_PASSWORD" not in os.environ:
-                        self.log.warning("MLflow username set, but MLFLOW_TRACKING_PASSWORD not found in environment!")
+                        self.log.warning(
+                            "MLflow username set, but MLFLOW_TRACKING_PASSWORD not found in environment!"
+                        )
 
     def load_checkpoint(self, checkpoint_path: str):
         """
@@ -284,7 +287,10 @@ class BaseTrainer(ABC):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
 
         # Check if it's a full checkpoint or just a state_dict
-        if "model_state_dict" not in checkpoint and "optimizer_state_dict" not in checkpoint:
+        if (
+            "model_state_dict" not in checkpoint
+            and "optimizer_state_dict" not in checkpoint
+        ):
             # This looks like just a state_dict, not a full checkpoint
             raise ValueError(
                 f"Checkpoint {checkpoint_path} appears to be a model state_dict only, "
@@ -425,7 +431,7 @@ class BaseTrainer(ABC):
         checkpoint_files.sort(key=os.path.getmtime, reverse=True)
 
         # Remove oldest checkpoints
-        for old_checkpoint in checkpoint_files[self.keep_checkpoints:]:
+        for old_checkpoint in checkpoint_files[self.keep_checkpoints :]:
             try:
                 os.remove(old_checkpoint)
             except OSError:
@@ -454,9 +460,9 @@ class BaseTrainer(ABC):
 
             # Always save the first best model, then respect save_frequency for subsequent saves
             is_first_save = self.best_model_paths[max_index] is None
-            if (
-                self.save_model
-                and (is_first_save or self.epochs_since_last_save[max_index] >= self.save_frequency)
+            if self.save_model and (
+                is_first_save
+                or self.epochs_since_last_save[max_index] >= self.save_frequency
             ):
                 # Remove old checkpoint if exists
                 if self.best_model_paths[max_index] and os.path.exists(
@@ -482,7 +488,9 @@ class BaseTrainer(ABC):
                 self.epochs_since_last_save[i] += 1
             return False
 
-    def build_epoch_log_metrics(self, epoch: int, primary_loss: float) -> Dict[str, Any]:
+    def build_epoch_log_metrics(
+        self, epoch: int, primary_loss: float
+    ) -> Dict[str, Any]:
         """
         Build the dict of epoch-level metrics to log to the experiment tracker.
 
@@ -545,16 +553,16 @@ class BaseTrainer(ABC):
 
             # Epoch-level logging to terminal
             if self.log_to_screen:
-                self.log.info(
-                    f"Epoch {epoch + 1}/{epochs} - avg_loss={avg_loss:.6f}"
-                )
+                self.log.info(f"Epoch {epoch + 1}/{epochs} - avg_loss={avg_loss:.6f}")
 
             # Epoch-level logging to experiment tracker (descriptive metric names per stage)
             if self.tracker is not None:
                 metrics = self.build_epoch_log_metrics(epoch, avg_loss)
                 # Learning rate (first param group)
                 if self.optimizer.param_groups:
-                    metrics["train/learning_rate"] = self.optimizer.param_groups[0]["lr"]
+                    metrics["train/learning_rate"] = self.optimizer.param_groups[0][
+                        "lr"
+                    ]
                 # Include gradient clipping statistics (clip count always; mean/std when adaptive)
                 grad_stats = self.adaptive_clipper.stats_for_logging(
                     warn=False, logger=self.log
@@ -588,7 +596,10 @@ class BaseTrainer(ABC):
                 and self.log_images
                 and self.image_log_interval > 0
                 and (epoch + 1) % self.image_log_interval == 0
-                and (self.image_log_max_count <= 0 or self._image_log_count < self.image_log_max_count)
+                and (
+                    self.image_log_max_count <= 0
+                    or self._image_log_count < self.image_log_max_count
+                )
             ):
                 log_fn = getattr(self, "log_validation_image", None)
                 if callable(log_fn):
@@ -611,9 +622,7 @@ class BaseTrainer(ABC):
                 last_checkpoint_path = os.path.join(
                     self.model_dir, "last_checkpoint.pt"
                 )
-                self.save_full_checkpoint(
-                    epoch, avg_loss, path=last_checkpoint_path
-                )
+                self.save_full_checkpoint(epoch, avg_loss, path=last_checkpoint_path)
                 if epoch == 0 or epoch == epochs - 1:
                     self.log.info(
                         f"Last model: {os.path.abspath(last_model_path)}, "

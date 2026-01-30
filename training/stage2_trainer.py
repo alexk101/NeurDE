@@ -271,7 +271,7 @@ class Stage2Trainer(BaseTrainer):
 
                 # Model prediction
                 Geq_pred = self.model(inputs, self.basis)
-                
+
                 Geq_target = Geq_seq[0, rollout].to(self.device)
 
                 # Compute loss
@@ -312,7 +312,7 @@ class Stage2Trainer(BaseTrainer):
                 khi = detach(torch.zeros_like(ux))
                 zetax = detach(torch.zeros_like(ux))
                 zetay = detach(torch.zeros_like(ux))
-                
+
                 Fi, Gi = self._handle_obstacle_and_bc(
                     Fi, Gi, rho, ux, uy, T, khi, zetax, zetay
                 )
@@ -468,7 +468,9 @@ class Stage2Trainer(BaseTrainer):
 
         return val_loss / len(self.val_dataset)
 
-    def build_epoch_log_metrics(self, epoch: int, primary_loss: float) -> Dict[str, Any]:
+    def build_epoch_log_metrics(
+        self, epoch: int, primary_loss: float
+    ) -> Dict[str, Any]:
         """
         Build epoch-level metrics for the experiment tracker.
 
@@ -508,9 +510,9 @@ class Stage2Trainer(BaseTrainer):
 
             # Always save the first best model, then respect save_frequency for subsequent saves
             is_first_save = self.best_model_paths[max_index] is None
-            if (
-                self.save_model
-                and (is_first_save or self.epochs_since_last_save[max_index] >= self.save_frequency)
+            if self.save_model and (
+                is_first_save
+                or self.epochs_since_last_save[max_index] >= self.save_frequency
             ):
                 # Remove old checkpoint if exists
                 if self.best_model_paths[max_index] and os.path.exists(
@@ -547,6 +549,7 @@ class Stage2Trainer(BaseTrainer):
         Compute mean absolute errors for density, temperature, velocity, pressure
         from NN vs GT rollout data. Used for experiment-tracking metrics.
         """
+
         def to_np(x):
             if hasattr(x, "detach"):
                 x = x.detach().cpu().numpy()
