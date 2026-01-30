@@ -301,24 +301,7 @@ class MlflowTracker(ExperimentTracker):
         step: Optional[int] = None,
         step_metric: Optional[str] = None,
     ) -> None:  # type: ignore[override]
-        # artifact_file: path under run's artifact directory
-        artifact_file = f"images/{key}.png"
-        try:
-            self._mlflow.log_image(image, artifact_file=artifact_file, step=step)
-        except TypeError:
-            # Older MLflow: log_image may not accept step; or use log_artifact
-            import tempfile
-
-            fd, path = tempfile.mkstemp(suffix=".png")
-            try:
-                os.close(fd)
-                image.save(path)
-                self._mlflow.log_artifact(path, artifact_path="images")
-            finally:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
+        self._mlflow.log_image(image, key=key, step=step)
 
     def finish(self) -> None:  # type: ignore[override]
         self._mlflow.end_run()

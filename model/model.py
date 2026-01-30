@@ -46,6 +46,19 @@ class DenseNet(nn.Module):
         if out_nonlinearity is not None:
             self.layers.append(out_nonlinearity())
 
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                # Standard init for hidden layers
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+        
+        # Scale down the LAST layer of alpha and phi subnets
+        # This ensures 'output' (dot product) starts near 0
+        nn.init.uniform_(self.alpha.layers[-1].weight, -0.01, 0.01)
+        nn.init.uniform_(self.phi.layers[-1].weight, -0.01, 0.01)
+
     def forward(self, x):
         for l in self.layers:
             x = l(x)

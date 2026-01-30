@@ -10,7 +10,7 @@ model_dir: results/stage1
 
 # Adaptive gradient clipping settings
 adaptive_clip:
-  enabled: false
+  enabled: true
   alpha: 0.97      # EMA decay factor for gradient norm statistics
   z_thresh: 2.5   # Z-score threshold for triggering adaptive clipping
   warmup_steps: 1000 # Number of steps to collect gradient norms before EMA initialization
@@ -18,4 +18,6 @@ adaptive_clip:
   clip_option: "adaptive_scaling"  # For zscore mode: "adaptive_scaling" or "mean"
   clip_factor: 1.0  # Multiplier for adaptive scaling threshold
   skip_update_on_spike: false  # Skip updating EMA statistics when spike is detected
-  max_grad_norm: 1.0 # Maximum gradient norm threshold (fallback). Only set if static clipping is desired.
+  max_grad_norm: null # Maximum gradient norm threshold (fallback). Only set if static clipping is desired.
+
+run_name: 'stage1'
