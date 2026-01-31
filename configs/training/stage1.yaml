@@ -5,6 +5,9 @@ epochs: 1000
 lr: 1.0e-4
 model_dir: results/stage1
 
+validation:
+  dataset_size: 100  # Size of validation set (held out from loaded data)
+
 # Note: Optimizer and scheduler are configured separately
 # This file contains training-specific parameters
 

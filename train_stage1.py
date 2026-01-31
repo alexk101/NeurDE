@@ -69,23 +69,46 @@ def main(cfg: DictConfig) -> None:
     data_path = case_cfg.data.stage1
     all_rho, all_ux, all_uy, all_T, all_Geq = load_equilibrium_state(data_path)
 
-    # Create dataset
-    dataset = EquilibriumDataset(
-        all_rho[: cfg.num_samples],
-        all_ux[: cfg.num_samples],
-        all_uy[: cfg.num_samples],
-        all_T[: cfg.num_samples],
-        all_Geq[: cfg.num_samples],
-    )
+    val_size = cfg.training.get("validation", {}).get("dataset_size", 0)
+    train_end = cfg.num_samples
+    val_end = train_end + val_size
+    if val_end > len(all_rho):
+        val_size = max(0, len(all_rho) - train_end)
+        val_end = train_end + val_size
 
-    # Create dataloader
+    # Training dataset and dataloader
+    train_dataset = EquilibriumDataset(
+        all_rho[:train_end],
+        all_ux[:train_end],
+        all_uy[:train_end],
+        all_T[:train_end],
+        all_Geq[:train_end],
+    )
     dataloader = DataLoader(
-        dataset,
+        train_dataset,
         batch_size=cfg.batch_size,
         shuffle=cfg.dataset.shuffle,
         num_workers=cfg.dataset.num_workers,
         pin_memory=cfg.dataset.pin_memory,
     )
+
+    # Validation dataset and dataloader (optional)
+    val_dataloader = None
+    if val_size > 0:
+        val_dataset = EquilibriumDataset(
+            all_rho[train_end:val_end],
+            all_ux[train_end:val_end],
+            all_uy[train_end:val_end],
+            all_T[train_end:val_end],
+            all_Geq[train_end:val_end],
+        )
+        val_dataloader = DataLoader(
+            val_dataset,
+            batch_size=cfg.batch_size,
+            shuffle=False,
+            num_workers=cfg.dataset.num_workers,
+            pin_memory=cfg.dataset.pin_memory,
+        )
 
     # Create model
     model = NeurDE(
@@ -143,12 +166,14 @@ def main(cfg: DictConfig) -> None:
         keep_checkpoints=cfg.get("keep_checkpoints", 5),
         resume_from=cfg.get("resume_from"),
         case_name=case_name,
+        val_dataloader=val_dataloader,
+        case_type=case_cfg.case_type,
         cfg=cfg,
     )
 
     # Print configuration
     print(f"Training {case_cfg.case_type} on {device}")
-    print(f"Epochs: {cfg.training.epochs}, Samples: {cfg.num_samples}")
+    print(f"Epochs: {cfg.training.epochs}, Train samples: {train_end}, Val samples: {val_size}")
     print(f"Model: {cfg.model.hidden_dim} hidden dim, {cfg.model.num_layers} layers")
 
     # Train

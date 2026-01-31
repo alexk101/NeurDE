@@ -121,22 +121,29 @@ def plot_cylinder_results(
     Ma_GT = np.asarray(Ma_GT)
     Ma_err = np.abs(Ma_NN - Ma_GT)
 
+    # Shared colorscale for GT and NN so they are comparable
+    vmin = float(np.nanmin([Ma_NN.min(), Ma_GT.min()]))
+    vmax = float(np.nanmax([Ma_NN.max(), Ma_GT.max()]))
+
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=CYLINDER_FIGSIZE)
 
     # Plot NN prediction
-    im1 = ax1.imshow(Ma_NN, cmap="jet")
+    im1 = ax1.imshow(Ma_NN, cmap="jet", vmin=vmin, vmax=vmax)
     ax1.set_title("Mach number - NN", fontsize=CYLINDER_TITLE_FONTSIZE)
     plt.colorbar(im1, ax=ax1)
+    ax1.axis("off")
 
     # Plot Ground Truth
-    im2 = ax2.imshow(Ma_GT, cmap="jet")
+    im2 = ax2.imshow(Ma_GT, cmap="jet", vmin=vmin, vmax=vmax)
     ax2.set_title("Mach number - GT", fontsize=CYLINDER_TITLE_FONTSIZE)
     plt.colorbar(im2, ax=ax2)
+    ax2.axis("off")
 
-    # Plot absolute error
+    # Plot absolute error (own colorscale)
     im3 = ax3.imshow(Ma_err, cmap="hot")
     ax3.set_title("|NN − GT|", fontsize=CYLINDER_TITLE_FONTSIZE)
     plt.colorbar(im3, ax=ax3)
+    ax3.axis("off")
 
     fig.suptitle(
         f"{case_type.capitalize()} - Sample {time_value}",
@@ -247,43 +254,51 @@ def plot_sod_results(
         y=0.98,
     )
 
-    # Row 1: NN vs GT
+    # Row 1: NN vs GT (same subplot per variable so scale is shared)
     plt.subplot(2, 4, 1)
     plt.plot(rho_nn, linewidth=SOD_LINEWIDTH, label="NN")
     plt.plot(rho_gt, linewidth=2, label="GT")
     plt.title("Density", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.gca().axis("off")
 
     plt.subplot(2, 4, 2)
     plt.plot(T_nn, linewidth=SOD_LINEWIDTH)
     plt.plot(T_gt, linewidth=2)
     plt.title("Temperature", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.gca().axis("off")
 
     plt.subplot(2, 4, 3)
     plt.plot(ux_nn, linewidth=SOD_LINEWIDTH)
     plt.plot(ux_gt, linewidth=2)
     plt.title("Velocity in x", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.gca().axis("off")
 
     plt.subplot(2, 4, 4)
     plt.plot(P_nn, linewidth=SOD_LINEWIDTH)
     plt.plot(P_gt, linewidth=2)
     plt.title("Pressure", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.gca().axis("off")
 
     # Row 2: Absolute error
     plt.subplot(2, 4, 5)
     plt.plot(err_rho, linewidth=2, color="C2")
     plt.title("|NN − GT| Density", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.gca().axis("off")
 
     plt.subplot(2, 4, 6)
     plt.plot(err_T, linewidth=2, color="C2")
     plt.title("|NN − GT| Temperature", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.gca().axis("off")
 
     plt.subplot(2, 4, 7)
     plt.plot(err_ux, linewidth=2, color="C2")
     plt.title("|NN − GT| Velocity", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.gca().axis("off")
 
     plt.subplot(2, 4, 8)
     plt.plot(err_P, linewidth=2, color="C2")
     plt.title("|NN − GT| Pressure", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.gca().axis("off")
 
     # Reduced whitespace
     plt.tight_layout(rect=[0, 0, 1, 0.95], h_pad=0.35, w_pad=0.35)
@@ -304,4 +319,116 @@ def plot_sod_results(
     fig.savefig(output_path, dpi=FIG_DPI, bbox_inches="tight")
     plt.close(fig)
 
+    return output_path
+
+
+# ============================================================================
+# Stage 1 validation (Geq GT vs NN)
+# ============================================================================
+
+STAGE1_FIGSIZE = (14, 5)
+
+
+def plot_stage1_validation(
+    Geq_GT,
+    Geq_NN,
+    case_type: str,
+    epoch_or_sample=0,
+    channel: int = 0,
+    output_dir=None,
+    save=True,
+):
+    """
+    Plot Stage 1 validation: Geq ground truth vs NN prediction for one sample.
+
+    Creates a 3-panel figure: Geq channel (GT), Geq channel (NN), per-cell L2 error.
+
+    Parameters
+    ----------
+    Geq_GT : array-like
+        Ground truth Geq (9, Y, X)
+    Geq_NN : array-like
+        NN predicted Geq (9, Y, X)
+    case_type : str
+        "cylinder", "cylinder_faster", or "sod_shock_tube" (controls 2D vs 1D layout)
+    epoch_or_sample : int, optional
+        Epoch or sample index for title (default: 0)
+    channel : int, optional
+        Geq channel to show in first two panels (default: 0)
+    output_dir : str, optional
+        Directory to save (when save=True)
+    save : bool, optional
+        If True, save to disk; if False, return figure (default: True)
+
+    Returns
+    -------
+    str or matplotlib.figure.Figure
+        Path if save=True, figure if save=False
+    """
+    Geq_GT = np.asarray(Geq_GT)
+    Geq_NN = np.asarray(Geq_NN)
+    # Per-cell L2 error over 9 channels: shape (Y, X)
+    err = np.sqrt(np.sum((Geq_GT - Geq_NN) ** 2, axis=0))
+    gt_ch = Geq_GT[channel]
+    nn_ch = Geq_NN[channel]
+
+    is_1d = case_type.lower() == "sod_shock_tube"
+    fig, axes = plt.subplots(1, 3, figsize=STAGE1_FIGSIZE)
+
+    if is_1d:
+        # SOD: plot middle row, shared ylim for GT and NN
+        mid = gt_ch.shape[0] // 2
+        gt_line = gt_ch[mid, :]
+        nn_line = nn_ch[mid, :]
+        ymin = float(np.nanmin([gt_line.min(), nn_line.min()]))
+        ymax = float(np.nanmax([gt_line.max(), nn_line.max()]))
+        axes[0].plot(gt_line, linewidth=2)
+        axes[0].set_ylim(ymin, ymax)
+        axes[0].set_title(f"Geq ch{channel} GT", fontsize=CYLINDER_TITLE_FONTSIZE)
+        axes[0].axis("off")
+        axes[1].plot(nn_line, linewidth=2)
+        axes[1].set_ylim(ymin, ymax)
+        axes[1].set_title(f"Geq ch{channel} NN", fontsize=CYLINDER_TITLE_FONTSIZE)
+        axes[1].axis("off")
+        axes[2].plot(err[mid, :], linewidth=2, color="C2")
+        axes[2].set_title("|GT − NN| L2", fontsize=CYLINDER_TITLE_FONTSIZE)
+        axes[2].axis("off")
+    else:
+        # Cylinder: 2D, shared colorscale for GT and NN
+        vmin = float(np.nanmin([gt_ch.min(), nn_ch.min()]))
+        vmax = float(np.nanmax([gt_ch.max(), nn_ch.max()]))
+        im0 = axes[0].imshow(gt_ch, cmap="jet", vmin=vmin, vmax=vmax)
+        axes[0].set_title(f"Geq ch{channel} GT", fontsize=CYLINDER_TITLE_FONTSIZE)
+        plt.colorbar(im0, ax=axes[0])
+        axes[0].axis("off")
+        im1 = axes[1].imshow(nn_ch, cmap="jet", vmin=vmin, vmax=vmax)
+        axes[1].set_title(f"Geq ch{channel} NN", fontsize=CYLINDER_TITLE_FONTSIZE)
+        plt.colorbar(im1, ax=axes[1])
+        axes[1].axis("off")
+        im2 = axes[2].imshow(err, cmap="hot")
+        axes[2].set_title("|GT − NN| L2", fontsize=CYLINDER_TITLE_FONTSIZE)
+        plt.colorbar(im2, ax=axes[2])
+        axes[2].axis("off")
+
+    fig.suptitle(
+        f"Stage 1 validation ({case_type}) — sample/epoch {epoch_or_sample}",
+        fontsize=CYLINDER_TITLE_FONTSIZE,
+    )
+    plt.tight_layout(rect=[0, 0, 1, 0.95], h_pad=0.35, w_pad=0.35)
+
+    if not save:
+        return fig
+
+    if output_dir is None:
+        current_file = os.path.abspath(__file__)
+        main_dir = os.path.dirname(os.path.dirname(current_file))
+        image_dir = os.path.join(main_dir, "images", "stage1_validation")
+    else:
+        image_dir = output_dir
+    os.makedirs(image_dir, exist_ok=True)
+    output_path = os.path.join(
+        image_dir, f"stage1_{case_type}_epoch_{epoch_or_sample}.png"
+    )
+    fig.savefig(output_path, dpi=FIG_DPI, bbox_inches="tight")
+    plt.close(fig)
     return output_path
