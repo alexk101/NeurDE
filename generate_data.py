@@ -18,7 +18,8 @@ import h5py
 import os
 
 from utils.solver import create_solver
-from utils.core import detach
+from utils.core import detach, set_seed
+from utils.physics_generator import PhysicsGenerator
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
@@ -31,6 +32,9 @@ def main(cfg: DictConfig) -> None:
     cfg : DictConfig
         Hydra configuration object
     """
+    # Set seed for reproducibility
+    set_seed(0)
+
     # Setup device
     device = torch.device(
         "cuda" if cfg.device >= 0 and torch.cuda.is_available() else "cpu"
@@ -61,8 +65,6 @@ def main(cfg: DictConfig) -> None:
                 "vuy": physics.vuy,
                 "Pr": physics.Pr,
                 "Ns": physics.Ns,
-                # Note: sparse_format and use_dense_inv are set by create_solver
-                # based on solver_type, so don't pass them here
             }
         )
     elif case_cfg.case_type == "sod_shock_tube":
@@ -78,9 +80,12 @@ def main(cfg: DictConfig) -> None:
             }
         )
 
-    # Use solver_type from config (cylinder_base, cylinder_faster, or sod_solver)
+    # Use solver_type from config
     solver_type = case_cfg.solver_type
     solver = create_solver(solver_type, **solver_kwargs)
+
+    # Instantiate PhysicsGenerator for Ground Truth Data
+    physics_gen = PhysicsGenerator(solver)
 
     # Compile solver methods if requested
     if cfg.compile:
@@ -109,16 +114,16 @@ def main(cfg: DictConfig) -> None:
 
     # Run simulation with batched GPU memory utilization
     steps = cfg.get("steps", 1000)
-    batch_size = cfg.get("transfer_batch_size", 100)  # Transfer to CPU every N steps
+    batch_size = cfg.get("transfer_batch_size", 100)
 
     print(f"Running {steps} simulation steps for {case_cfg.case_type}...")
     print(f"Using GPU batch size: {batch_size} steps per CPU transfer")
 
-    # Pre-allocate GPU tensors for batching (reduces memory fragmentation)
+    # Pre-allocate GPU tensors for batching
     Y, X = physics.Y, physics.X
     Qn = physics.Qn
 
-    # Storage for data (will accumulate on GPU, then transfer in batches)
+    # Storage for data
     all_rho = []
     all_ux = []
     all_uy = []
@@ -135,8 +140,6 @@ def main(cfg: DictConfig) -> None:
         all_Fi_obs_Inlet = []
         all_Gi_obs_Inlet = []
 
-    # GPU-side batch buffers (accumulate before CPU transfer)
-    # Note: Obstacle distributions are not full grid, so we don't batch them
     if device.type == "cuda":
         batch_rho = torch.zeros((batch_size, Y, X), device=device, dtype=torch.float32)
         batch_ux = torch.zeros((batch_size, Y, X), device=device, dtype=torch.float32)
@@ -155,14 +158,13 @@ def main(cfg: DictConfig) -> None:
             (batch_size, Qn, Y, X), device=device, dtype=torch.float32
         )
     else:
-        # CPU mode: no batching needed
         batch_rho = batch_ux = batch_uy = batch_T = None
         batch_Feq = batch_Geq = batch_Fi0 = batch_Gi0 = None
 
     with torch.no_grad():
         batch_idx = 0
         for i in range(steps):
-            # Store initial distributions in GPU batch buffer
+            # Store initial distributions
             if device.type == "cuda":
                 batch_Fi0[batch_idx] = Fi0
                 batch_Gi0[batch_idx] = Gi0
@@ -174,7 +176,7 @@ def main(cfg: DictConfig) -> None:
             rho, ux, uy, E = solver.get_macroscopic(Fi0, Gi0)
             T = solver.get_temp_from_energy(ux, uy, E)
 
-            # Store macroscopic variables in GPU batch buffer
+            # Store macroscopic variables
             if device.type == "cuda":
                 batch_rho[batch_idx] = rho
                 batch_ux[batch_idx] = ux
@@ -188,22 +190,13 @@ def main(cfg: DictConfig) -> None:
 
             # Get equilibrium distributions
             Feq = solver.get_Feq(rho, ux, uy, T)
-            if case_cfg.case_type in ["cylinder", "cylinder_faster"]:
-                # Use solver's sparse_format attribute (set by create_solver)
-                Geq, khi, zetax, zetay = solver.get_Geq_Newton_solver(
-                    rho,
-                    ux,
-                    uy,
-                    T,
-                    khi0,
-                    zetax0,
-                    zetay0,
-                    sparse_format=solver.sparse_format,
-                )
-            else:
-                Geq, khi, zetax, zetay = solver.get_Geq_Newton_solver(
-                    rho, ux, uy, T, khi0, zetax0, zetay0
-                )
+            
+            # Use PhysicsGenerator for Geq ---
+            sparse_fmt = getattr(solver, "sparse_format", "csr")
+            Geq, khi, zetax, zetay = physics_gen.get_Geq(
+                rho, ux, uy, T, khi0, zetax0, zetay0, sparse_format=sparse_fmt
+            )
+            # ---------------------------------------------
 
             if device.type == "cuda":
                 batch_Feq[batch_idx] = Feq
@@ -219,14 +212,14 @@ def main(cfg: DictConfig) -> None:
             Fi, Gi = solver.streaming(Fi0, Gi0)
 
             # Handle obstacle and BC for Cylinder cases
-            # Note: Obstacle distributions are not full grid (only obstacle points),
-            # so we store them directly without batching
             if case_cfg.case_type in ["cylinder", "cylinder_faster"]:
+                # --- UPDATED: Use Solver's cached static BCs ---
+                # Pass dummy args for rho/ux/etc as they are ignored by the refactored method
                 Fi_obs_cyl, Gi_obs_cyl, Fi_obs_Inlet, Gi_obs_Inlet = (
                     solver.get_obs_distribution(rho, ux, uy, T, khi, zetax, zetay)
                 )
+                # -----------------------------------------------
 
-                # Store directly (obstacle distributions are smaller, not full grid)
                 all_Fi_obs_cyl.append(detach(Fi_obs_cyl))
                 all_Gi_obs_cyl.append(detach(Gi_obs_cyl))
                 all_Fi_obs_Inlet.append(detach(Fi_obs_Inlet))
@@ -239,7 +232,6 @@ def main(cfg: DictConfig) -> None:
                 Fi0 = Fi_new
                 Gi0 = Gi_new
             else:
-                # SOD handles BC inline during streaming
                 Fi0 = Fi
                 Gi0 = Gi
 
@@ -248,10 +240,9 @@ def main(cfg: DictConfig) -> None:
             zetax0 = zetax
             zetay0 = zetay
 
-            # Transfer batch to CPU when full
+            # Transfer batch to CPU
             batch_idx += 1
             if device.type == "cuda" and batch_idx >= batch_size:
-                # Transfer entire batch to CPU at once (more efficient than per-step)
                 all_rho.extend(batch_rho.cpu().numpy())
                 all_ux.extend(batch_ux.cpu().numpy())
                 all_uy.extend(batch_uy.cpu().numpy())
@@ -262,9 +253,9 @@ def main(cfg: DictConfig) -> None:
                 all_Gi0.extend(batch_Gi0.cpu().numpy())
 
                 batch_idx = 0
-                torch.cuda.empty_cache()  # Free unused GPU memory
+                torch.cuda.empty_cache()
 
-        # Transfer remaining batch if any
+        # Transfer remaining batch
         if device.type == "cuda" and batch_idx > 0:
             all_rho.extend(batch_rho[:batch_idx].cpu().numpy())
             all_ux.extend(batch_ux[:batch_idx].cpu().numpy())

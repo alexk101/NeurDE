@@ -10,7 +10,6 @@ import torch.nn as nn
 import numpy as np
 
 from ..phys.getFeq import F_pop_torch
-from ..phys.getGeq import levermore_Geq
 from ..core import detach
 
 
@@ -405,65 +404,6 @@ class BaseLBSolver(nn.Module):
             Q = self.Qn
         Feq = F_pop_torch.compute_Feq(rho, ux, self.Uax, uy, self.Uay, T, Q=Q)
         return Feq
-
-    def get_Geq_Newton_solver(
-        self, rho, ux, uy, T, khi, zetax, zetay, sparse_format="csr"
-    ):
-        """
-        Compute equilibrium G distribution function using Newton-Raphson method.
-
-        Parameters
-        ----------
-        rho : torch.Tensor
-            Density (Y, X)
-        ux : torch.Tensor
-            x-component of velocity (Y, X)
-        uy : torch.Tensor
-            y-component of velocity (Y, X)
-        T : torch.Tensor
-            Temperature (Y, X)
-        khi : numpy.ndarray
-            Lagrange multiplier for density (Y, X)
-        zetax : numpy.ndarray
-            Lagrange multiplier for x-velocity (Y, X)
-        zetay : numpy.ndarray
-            Lagrange multiplier for y-velocity (Y, X)
-        sparse_format : str, optional
-            Sparse matrix format for multinv: "csr" or "csc" (default: "csr")
-
-        Returns
-        -------
-        tuple
-            (Geq, khi, zetax, zetay) where Geq is torch.Tensor (Q, Y, X)
-        """
-        # Convert tensors to numpy arrays
-        rho_np = detach(rho) if not isinstance(rho, np.ndarray) else rho
-        ux_np = detach(ux) if not isinstance(ux, np.ndarray) else ux
-        uy_np = detach(uy) if not isinstance(uy, np.ndarray) else uy
-        T_np = detach(T) if not isinstance(T, np.ndarray) else T
-        khi = detach(khi) if not isinstance(khi, np.ndarray) else khi
-        zetax = detach(zetax) if not isinstance(zetax, np.ndarray) else zetax
-        zetay = detach(zetay) if not isinstance(zetay, np.ndarray) else zetay
-
-        # Compute Geq using unified levermore_Geq
-        Geq_np, khi, zetax, zetay = levermore_Geq(
-            detach(self.ex),
-            detach(self.ey),
-            ux_np,
-            uy_np,
-            T_np,
-            rho_np,
-            self.Cv,
-            self.Qn,
-            khi,
-            zetax,
-            zetay,
-            sparse_format=sparse_format,
-        )
-
-        # Convert back to torch tensors
-        Geq = torch.tensor(Geq_np, dtype=torch.float32, device=self.device)
-        return Geq, khi, zetax, zetay
 
     def get_maxwellian_pressure_tensor(self, rho, ux, uy, T):
         """

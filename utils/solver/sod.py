@@ -8,6 +8,7 @@ import torch
 import numpy as np
 
 from .base import BaseLBSolver
+from ..physics_generator import PhysicsGenerator
 
 
 class SODSolver(BaseLBSolver):
@@ -120,6 +121,8 @@ class SODSolver(BaseLBSolver):
         tuple
             (Fi0, Gi0, khi, zetax, zetay) initial distributions and Lagrange multipliers
         """
+        gen = PhysicsGenerator(self)
+
         rho0 = torch.ones((self.Y, self.X), device=self.device)
         ux0 = torch.zeros((self.Y, self.X), device=self.device)
         uy0 = torch.zeros((self.Y, self.X), device=self.device)
@@ -135,8 +138,11 @@ class SODSolver(BaseLBSolver):
         zetax0 = np.zeros((self.Y, self.X))
         zetay0 = np.zeros((self.Y, self.X))
 
+        # Analytic Feq (Solver)
         Fi0 = self.get_Feq(rho0, ux0, uy0, T0, Q=self.Qn)
-        Gi0, khi, zetax, zetay = self.get_Geq_Newton_solver(
+        
+        # Newton-Raphson Geq (Generator)
+        Gi0, khi, zetax, zetay = gen.get_Geq(
             rho0, ux0, uy0, T0, khi0, zetax0, zetay0, sparse_format="csr"
         )
 
@@ -155,6 +161,9 @@ class SODSolver(BaseLBSolver):
         tuple
             (Fi0, Gi0, khi, zetax, zetay) initial distributions and Lagrange multipliers
         """
+        # Instantiate Generator
+        gen = PhysicsGenerator(self)
+
         rho_max = 1.0
         p_max = 0.2
 
@@ -177,8 +186,11 @@ class SODSolver(BaseLBSolver):
         zetax0 = np.zeros((self.Y, self.X))
         zetay0 = np.zeros((self.Y, self.X))
 
+        # Analytic Feq (Solver)
         Fi0 = self.get_Feq(rho0, ux0, uy0, T0, Q=self.Qn)
-        Gi0, khi, zetax, zetay = self.get_Geq_Newton_solver(
+        
+        # Newton-Raphson Geq (Generator)
+        Gi0, khi, zetax, zetay = gen.get_Geq(
             rho0, ux0, uy0, T0, khi0, zetax0, zetay0, sparse_format="csr"
         )
 

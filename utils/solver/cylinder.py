@@ -11,7 +11,7 @@ import numpy as np
 
 from .base import BaseLBSolver
 from ..phys.getFeq import F_pop_torch
-from ..phys.getGeq import levermore_Geq_BCs, levermore_Geq_Obs
+from ..physics_generator import PhysicsGenerator
 from ..core import detach
 
 
@@ -132,6 +132,61 @@ class CylinderSolver(BaseLBSolver):
         # Create obstacle
         self.create_obstacle()
 
+        # Pre-calculate Static Boundary Conditions
+        self._cache_static_boundaries()
+
+    def _cache_static_boundaries(self):
+        """
+        Pre-calculate and cache the equilibrium distributions for Obstacles and BCs.
+        These are static (fixed T, u, rho at boundaries), so we don't need Newton
+        solver during training.
+        """
+        # Instantiate the generator
+        gen = PhysicsGenerator(self)
+        
+        # 1. Create dummy/initial fields for the BC calculation
+        # We only care about the values at the masked positions
+        rho = torch.ones((self.Y, self.X), device=self.device)
+        ux = torch.full((self.Y, self.X), self.U0, device=self.device)
+        uy = torch.zeros((self.Y, self.X), device=self.device)
+        T = torch.full((self.Y, self.X), self.T0, device=self.device)
+        
+        khi = np.zeros((self.Y, self.X))
+        zetax = np.zeros((self.Y, self.X))
+        zetay = np.zeros((self.Y, self.X))
+
+        # 2. Obstacle Setup
+        ux_obs = torch.where(self.Obs, torch.tensor(0.0, device=self.device), ux)
+        uy_obs = torch.where(self.Obs, torch.tensor(0.0, device=self.device), uy)
+        T_obs = torch.where(self.Obs, torch.tensor(self.T0, device=self.device), T)
+        rho_obs = torch.where(self.Obs, torch.tensor(1.0, device=self.device), rho)
+
+        # 3. Calculate Obstacle Distributions (Newton)
+        self.Fi_obs_cyl = self.get_Feq_obs(rho_obs, ux_obs, uy_obs, T_obs)
+        self.Gi_obs_cyl, khi_obs, zetax_obs, zetay_obs = gen.get_Geq_obs(
+            rho_obs, ux_obs, uy_obs, T_obs, khi, zetax, zetay, self.Obs,
+            use_dense_inv=self.use_dense_inv, sparse_format=self.sparse_format
+        )
+
+        # 4. Inlet Setup
+        # Note: We reuse the Lagrange multipliers (khi_obs...) from the previous step 
+        # as a warm start, though for static caching it matters less.
+        ux_obs[self.coly, 0] = self.U0
+        uy_obs[self.coly, 0] = 0
+        T_obs[self.coly, 0] = self.T0
+        rho_obs[self.coly, 0] = self.rho0
+
+        # 5. Calculate Inlet Distributions (Newton)
+        self.Fi_obs_Inlet = self.get_Feq_BC(rho_obs, ux_obs, uy_obs, T_obs)
+        self.Gi_obs_Inlet, _, _, _ = gen.get_Geq_BC(
+            rho_obs, ux_obs, uy_obs, T_obs, khi_obs, zetax_obs, zetay_obs, self.coly, 0,
+            use_dense_inv=self.use_dense_inv, sparse_format=self.sparse_format
+        )
+        
+        # Ensure they stay on device
+        self.Gi_obs_Inlet = self.Gi_obs_Inlet.to(self.device)
+        self.Gi_obs_cyl = self.Gi_obs_cyl.to(self.device)
+
     def create_obstacle(self):
         """
         Create obstacle mask for circular cylinder.
@@ -233,174 +288,12 @@ class CylinderSolver(BaseLBSolver):
         )
         return Feq_BC
 
-    def get_Geq_Newton_solver_obs(self, rho, ux, uy, T, khi, zetax, zetay):
-        """
-        Compute equilibrium G distribution for obstacle using Newton-Raphson.
-
-        Parameters
-        ----------
-        rho : torch.Tensor
-            Density (Y, X)
-        ux : torch.Tensor
-            x-component of velocity (Y, X)
-        uy : torch.Tensor
-            y-component of velocity (Y, X)
-        T : torch.Tensor
-            Temperature (Y, X)
-        khi : numpy.ndarray
-            Lagrange multiplier for density (Y, X)
-        zetax : numpy.ndarray
-            Lagrange multiplier for x-velocity (Y, X)
-        zetay : numpy.ndarray
-            Lagrange multiplier for y-velocity (Y, X)
-
-        Returns
-        -------
-        tuple
-            (Geq_obs, khi, zetax, zetay) where Geq_obs is torch.Tensor (Q, Y, X)
-        """
-        # Convert tensors to numpy arrays
-        rho_np = detach(rho) if not isinstance(rho, np.ndarray) else rho
-        ux_np = detach(ux) if not isinstance(ux, np.ndarray) else ux
-        uy_np = detach(uy) if not isinstance(uy, np.ndarray) else uy
-        T_np = detach(T) if not isinstance(T, np.ndarray) else T
-        khi = detach(khi) if not isinstance(khi, np.ndarray) else khi
-        zetax = detach(zetax) if not isinstance(zetax, np.ndarray) else zetax
-        zetay = detach(zetay) if not isinstance(zetay, np.ndarray) else zetay
-
-        # Compute Geq using unified levermore_Geq_Obs
-        Geq_np, khi, zetax, zetay = levermore_Geq_Obs(
-            detach(self.ex),
-            detach(self.ey),
-            ux_np,
-            uy_np,
-            T_np,
-            rho_np,
-            self.Cv,
-            self.Qn,
-            khi,
-            zetax,
-            zetay,
-            detach(self.Obs),
-            use_dense_inv=self.use_dense_inv,
-            sparse_format=self.sparse_format,
-        )
-
-        # Convert back to torch tensors
-        Geq_obs = torch.tensor(Geq_np, dtype=torch.float32, device=self.device)
-        return Geq_obs, khi, zetax, zetay
-
-    def get_Geq_Newton_solver_BC(self, rho, ux, uy, T, khi, zetax, zetay):
-        """
-        Compute equilibrium G distribution for boundary conditions using Newton-Raphson.
-
-        Parameters
-        ----------
-        rho : torch.Tensor
-            Density (Y, X)
-        ux : torch.Tensor
-            x-component of velocity (Y, X)
-        uy : torch.Tensor
-            y-component of velocity (Y, X)
-        T : torch.Tensor
-            Temperature (Y, X)
-        khi : numpy.ndarray
-            Lagrange multiplier for density (Y, X)
-        zetax : numpy.ndarray
-            Lagrange multiplier for x-velocity (Y, X)
-        zetay : numpy.ndarray
-            Lagrange multiplier for y-velocity (Y, X)
-
-        Returns
-        -------
-        tuple
-            (Geq_BC, khi, zetax, zetay) where Geq_BC is torch.Tensor (Q, Y, X)
-        """
-        # Convert tensors to numpy arrays
-        rho_np = detach(rho) if not isinstance(rho, np.ndarray) else rho
-        ux_np = detach(ux) if not isinstance(ux, np.ndarray) else ux
-        uy_np = detach(uy) if not isinstance(uy, np.ndarray) else uy
-        T_np = detach(T) if not isinstance(T, np.ndarray) else T
-        khi = detach(khi) if not isinstance(khi, np.ndarray) else khi
-        zetax = detach(zetax) if not isinstance(zetax, np.ndarray) else zetax
-        zetay = detach(zetay) if not isinstance(zetay, np.ndarray) else zetay
-
-        # Compute Geq using unified levermore_Geq_BCs
-        Geq_np, khi, zetax, zetay = levermore_Geq_BCs(
-            detach(self.ex),
-            detach(self.ey),
-            ux_np,
-            uy_np,
-            T_np,
-            rho_np,
-            self.Cv,
-            self.Qn,
-            khi,
-            zetax,
-            zetay,
-            detach(self.coly),
-            0,
-            use_dense_inv=self.use_dense_inv,
-            sparse_format=self.sparse_format,
-        )
-
-        # Convert back to torch tensors
-        Geq_BC = torch.tensor(Geq_np, dtype=torch.float32, device=self.device)
-        return Geq_BC, khi, zetax, zetay
-
     def get_obs_distribution(self, rho, ux, uy, T, khi, zetax, zetay):
         """
-        Compute obstacle and boundary condition distributions.
-
-        Parameters
-        ----------
-        rho : torch.Tensor
-            Density (Y, X)
-        ux : torch.Tensor
-            x-component of velocity (Y, X)
-        uy : torch.Tensor
-            y-component of velocity (Y, X)
-        T : torch.Tensor
-            Temperature (Y, X)
-        khi : numpy.ndarray
-            Lagrange multiplier for density (Y, X)
-        zetax : numpy.ndarray
-            Lagrange multiplier for x-velocity (Y, X)
-        zetay : numpy.ndarray
-            Lagrange multiplier for y-velocity (Y, X)
-
-        Returns
-        -------
-        tuple
-            (Fi_obs_cyl, Gi_obs_cyl, Fi_obs_Inlet, Gi_obs_Inlet) distributions
+        Return cached obstacle and boundary condition distributions.
+        Args are ignored as BCs are static.
         """
-        # Obstacle distribution
-        ux_obs = torch.where(self.Obs, torch.tensor(0.0, device=self.device), ux)
-        uy_obs = torch.where(self.Obs, torch.tensor(0.0, device=self.device), uy)
-        T_obs = torch.where(self.Obs, torch.tensor(self.T0, device=self.device), T)
-        rho_obs = torch.where(self.Obs, torch.tensor(1.0, device=self.device), rho)
-
-        Fi_obs_cyl = self.get_Feq_obs(rho_obs, ux_obs, uy_obs, T_obs)
-
-        Gi_obs_cyl, khi_obs, zetax_obs, zetay_obs = self.get_Geq_Newton_solver_obs(
-            rho_obs, ux_obs, uy_obs, T_obs, khi, zetax, zetay
-        )
-
-        # Inlet boundary conditions
-        ux_obs[self.coly, 0] = self.U0
-        uy_obs[self.coly, 0] = 0
-        T_obs[self.coly, 0] = self.T0
-        rho_obs[self.coly, 0] = self.rho0
-
-        Fi_obs_Inlet = self.get_Feq_BC(rho_obs, ux_obs, uy_obs, T_obs)
-        Gi_obs_Inlet, _, _, _ = self.get_Geq_Newton_solver_BC(
-            rho_obs, ux_obs, uy_obs, T_obs, khi_obs, zetax_obs, zetay_obs
-        )
-
-        Gi_obs_Inlet = Gi_obs_Inlet.to(self.device)
-        Gi_obs_cyl = Gi_obs_cyl.to(self.device)
-
-        return Fi_obs_cyl, Gi_obs_cyl, Fi_obs_Inlet, Gi_obs_Inlet
+        return self.Fi_obs_cyl, self.Gi_obs_cyl, self.Fi_obs_Inlet, self.Gi_obs_Inlet
 
     def enforce_Obs_and_BC(
         self, Fi, Gi, Fi_obs_cyl, Gi_obs_cyl, Fi_obs_Inlet, Gi_obs_Inlet
@@ -462,7 +355,8 @@ class CylinderSolver(BaseLBSolver):
         tuple
             (Fi0, Gi0, khi, zetax, zetay) initial distributions and Lagrange multipliers
         """
-        # Initial condition
+        gen = PhysicsGenerator(self) # Create temp generator
+        
         rho = torch.ones((self.Y, self.X))
         ux = torch.full((self.Y, self.X), self.U0)
         uy = torch.zeros((self.Y, self.X))
@@ -474,12 +368,12 @@ class CylinderSolver(BaseLBSolver):
 
         Fi0 = self.get_Feq(rho, ux, uy, T)
 
-        Gi0, khi, zetax, zetay = self.get_Geq_Newton_solver(
+        # Use generator for the heavy lifting
+        Gi0, khi, zetax, zetay = gen.get_Geq(
             rho, ux, uy, T, khi0, zetax0, zetay0, sparse_format=self.sparse_format
         )
 
         Fi0 = Fi0.to(self.device)
         Gi0 = Gi0.to(self.device)
-        del rho, ux, uy, T, khi0, zetax0, zetay0
 
         return Fi0, Gi0, khi, zetax, zetay
