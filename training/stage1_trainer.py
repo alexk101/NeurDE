@@ -150,9 +150,6 @@ class Stage1Trainer(BaseTrainer):
 
             self.optimizer.step()
 
-            if self.scheduler is not None:
-                self.scheduler.step()
-
             loss_epoch += loss.item()
             num_batches += 1
 

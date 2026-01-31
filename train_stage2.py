@@ -198,6 +198,7 @@ def main(cfg: DictConfig) -> None:
         scheduler_type=cfg.scheduler.scheduler_type,
         total_steps=total_steps,
         config=OmegaConf.to_container(cfg.scheduler, resolve=True),
+        total_epochs=cfg.training.epochs,
     )
 
     # Resolve model_dir under Hydra output dir so checkpoints live in outputs/<run>/

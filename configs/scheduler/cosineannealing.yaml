@@ -1,7 +1,6 @@
 # @package scheduler
-# CosineAnnealingWarmRestarts scheduler configuration
+# CosineAnnealingLR scheduler configuration (stepped per epoch)
 
-scheduler_type: CosineAnnealingWarmRestarts
-T_0: 500
-T_mult: 2
+scheduler_type: CosineAnnealingLR
+# T_max set from training.epochs at runtime; override here if needed
 eta_min: 5.01e-6

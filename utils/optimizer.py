@@ -84,7 +84,7 @@ def dispatch_optimizer(model, lr=0.001, optimizer_type="AdamW"):
         return optimizers
 
 
-def get_scheduler(optimizer, scheduler_type, total_steps, config):
+def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=None):
     """
     Create and return a learning rate scheduler.
 
@@ -97,11 +97,11 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config):
     scheduler_type : str
         Type of scheduler to create. Options:
         - "OneCycleLR": One cycle learning rate policy
-        - "CosineAnnealingWarmRestarts": Cosine annealing with warm restarts
+        - "CosineAnnealingLR": Cosine annealing (no restarts)
         - "ReduceLROnPlateau": Reduce LR on plateau
         - "StepLR": Step learning rate decay
     total_steps : int
-        Total number of training steps (used by OneCycleLR and CosineAnnealingWarmRestarts)
+        Total number of training steps (used by OneCycleLR)
     config : dict
         Configuration dictionary with scheduler-specific parameters:
 
@@ -111,9 +111,9 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config):
             - div_factor (float, default: 10): Initial LR = max_lr / div_factor
             - final_div_factor (float, default: 100): Final LR = initial_lr / final_div_factor
 
-        For "CosineAnnealingWarmRestarts":
-            - T_0 (int, default: total_steps // 10): Number of iterations for first restart
-            - T_mult (int, default: 2): Factor to increase T_0 after each restart
+        For "CosineAnnealingLR":
+            - T_max (int, optional): Number of epochs (default: total_epochs or 1000).
+              Pass total_epochs to get_scheduler when using this scheduler.
             - eta_min (float, default: 0): Minimum learning rate
 
         For "ReduceLROnPlateau":
@@ -124,6 +124,9 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config):
         For "StepLR":
             - step_size (int, default: 30): Period of learning rate decay
             - gamma (float, default: 0.1): Multiplicative factor for LR decay
+
+    total_epochs : int, optional
+        Total number of training epochs. Required for CosineAnnealingLR (used as T_max).
 
     Returns
     -------
@@ -144,11 +147,11 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config):
             div_factor=config.get("div_factor", 10),
             final_div_factor=config.get("final_div_factor", 100),
         )
-    elif scheduler_type == "CosineAnnealingWarmRestarts":
-        return torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+    elif scheduler_type == "CosineAnnealingLR":
+        T_max = config.get("T_max", total_epochs if total_epochs is not None else 1000)
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            T_0=config.get("T_0", total_steps // 10),
-            T_mult=config.get("T_mult", 2),
+            T_max=T_max,
             eta_min=config.get("eta_min", 0),
         )
     elif scheduler_type == "ReduceLROnPlateau":

@@ -7,6 +7,25 @@ class NeurDE(nn.Module):
         super(NeurDE, self).__init__()
         self.alpha = DenseNet(alpha_layer, activation)
         self.phi = DenseNet(phi_layer, activation)
+        self._init_weights()
+        
+    def _init_weights(self):
+        # 1. Standard Init: Apply Xavier uniform to ALL Linear layers found recursively
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+        
+        # 2. Safety Overwrite: Scale down ONLY the final layers that drive the exponential
+        nn.init.uniform_(self.alpha.layers[-1].weight, -0.01, 0.01)
+        nn.init.uniform_(self.phi.layers[-1].weight, -0.01, 0.01)
+        
+        # Optional: Zero out bias for the final layers to ensure strict centering around 0
+        if self.alpha.layers[-1].bias is not None:
+            nn.init.zeros_(self.alpha.layers[-1].bias)
+        if self.phi.layers[-1].bias is not None:
+            nn.init.zeros_(self.phi.layers[-1].bias)
 
     def forward(self, u0, grid):
         # Ensure consistent input shapes
@@ -45,19 +64,6 @@ class DenseNet(nn.Module):
 
         if out_nonlinearity is not None:
             self.layers.append(out_nonlinearity())
-
-    def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                # Standard init for hidden layers
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-        
-        # Scale down the LAST layer of alpha and phi subnets
-        # This ensures 'output' (dot product) starts near 0
-        nn.init.uniform_(self.alpha.layers[-1].weight, -0.01, 0.01)
-        nn.init.uniform_(self.phi.layers[-1].weight, -0.01, 0.01)
 
     def forward(self, x):
         for l in self.layers:
