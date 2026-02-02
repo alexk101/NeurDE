@@ -439,19 +439,19 @@ class BaseTrainer(ABC):
 
     def update_best_models(self, current_loss: float, epoch: int) -> bool:
         """
-        Update top 3 best models based on current loss.
+        Update top 3 best models based on current loss (validation loss).
 
         Parameters
         ----------
         current_loss : float
-            Current loss value
+            Current loss value (primary metric, e.g. validation loss)
         epoch : int
             Current epoch
 
         Returns
         -------
         bool
-            True if this epoch updated any of the top-3 best (for logging best/epoch_loss).
+            True if this epoch updated any of the top-3 best.
         """
         if current_loss < max(self.best_losses):
             max_index = self.best_losses.index(max(self.best_losses))
@@ -551,7 +551,7 @@ class BaseTrainer(ABC):
                 if type(self.scheduler).__name__ == "ReduceLROnPlateau":
                     self.scheduler.step(avg_loss)
 
-            # Update best-model tracking based on the returned loss
+            # Update best-model tracking based on the returned loss (validation)
             updated_best = self.update_best_models(avg_loss, epoch)
 
             # Epoch-level logging to terminal
@@ -581,10 +581,14 @@ class BaseTrainer(ABC):
                 self.tracker.log_metrics(
                     metrics, step=self.global_step, step_metric="epoch"
                 )
-                # Best epoch: log only when this epoch is a new best (x=epochs, y=best loss)
+                # Best epoch: log two curves when this epoch is a new best
                 if updated_best:
+                    train_at_best = getattr(self, "_last_epoch_train_loss", None)
                     best_metrics = {
-                        "best/epoch_loss": float(min(self.best_losses)),
+                        "best/train_loss": float(
+                            train_at_best if train_at_best is not None else avg_loss
+                        ),
+                        "best/val_loss": float(avg_loss),
                         "epoch": epoch + 1,
                     }
                     self.tracker.log_metrics(
@@ -637,30 +641,46 @@ class BaseTrainer(ABC):
             self.tracker.finish()
 
     @staticmethod
-    def get_norm(model: nn.Module, vector_type: str = "grad"):
+    def get_norm(model: nn.Module, vector_type: str = "grad", p_norm: float = 2.0):
         """
-        Get the norm of the model parameters.
+        Get the norm of the model parameters or gradients.
 
         Parameters
         ----------
         model : nn.Module
             Model to get the norm of
         vector_type : str
-            Type of vector to get the norm of (weights or grad)
+            Type of vector to get the norm of ("weights" or "grad")
+        p_norm : float
+            The order of the norm (default: 2.0 for L2 norm). 
+            Use float('inf') for max norm.
 
         Returns
         -------
         torch.Tensor
-            Norm of the model parameters
+            The calculated norm (scalar tensor).
         """
         device = next(model.parameters()).device
-        norm = torch.zeros(1, dtype=torch.float32, device=device)
+        total_norm = torch.zeros(1, dtype=torch.float32, device=device)
+        
         for p in model.parameters():
             if vector_type == "weights":
-                local_norm = p.detach().float().norm(2).pow(2)
+                param_data = p.detach().float()
             elif vector_type == "grad":
                 if p.grad is None:
                     continue
-                local_norm = p.grad.detach().float().norm(2).pow(2)
-            norm += local_norm
-        return norm
+                param_data = p.grad.detach().float()
+            else:
+                raise ValueError(f"Unknown vector_type: {vector_type}")
+
+            # Accumulate the p-th power of the norm
+            if p_norm == float('inf'):
+                total_norm = torch.max(total_norm, param_data.abs().max())
+            else:
+                total_norm += param_data.norm(p_norm).pow(p_norm)
+
+        # Return the p-th root to get the actual norm
+        if p_norm != float('inf'):
+            total_norm = total_norm.pow(1.0 / p_norm)
+            
+        return total_norm

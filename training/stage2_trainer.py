@@ -333,10 +333,10 @@ class Stage2Trainer(BaseTrainer):
             is_last_batch = batch_idx == len(self.dataloader) - 1
             if is_last_batch:
                 with torch.no_grad():
-                    grad_sq = self.get_norm(self.model, "grad")
-                    weight_sq = self.get_norm(self.model, "weights")
-                self._last_epoch_grad_norm_avg = float(grad_sq.sqrt().item())
-                self._last_epoch_weight_norm_avg = float(weight_sq.sqrt().item())
+                    grad = self.get_norm(self.model, "grad")
+                    weight = self.get_norm(self.model, "weights")
+                self._last_epoch_grad_norm_avg = float(grad.item())
+                self._last_epoch_weight_norm_avg = float(weight.item())
 
             self.optimizer.step()
             if self.scheduler is not None and type(self.scheduler).__name__ != "ReduceLROnPlateau":
