@@ -12,7 +12,7 @@ tracker:
   image_log_interval: 1
   image_log_max_count: 20
 
-  # The HTTPS address of your Caddy server
+  # Mlflow server address
   tracking_uri: "https://192.168.50.34" 
 
   # Hybrid Auth: Username in config, Password in ENV

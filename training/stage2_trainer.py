@@ -339,6 +339,8 @@ class Stage2Trainer(BaseTrainer):
                 self._last_epoch_weight_norm_avg = float(weight_sq.sqrt().item())
 
             self.optimizer.step()
+            if self.scheduler is not None and type(self.scheduler).__name__ != "ReduceLROnPlateau":
+                self.scheduler.step()
 
             # Track batch loss
             batch_loss = total_loss.item() / self.num_rollout
@@ -372,6 +374,7 @@ class Stage2Trainer(BaseTrainer):
                 self.tracker.log_metrics(
                     metrics, step=self.global_step, step_metric="batch"
                 )
+                self.adaptive_clipper.reset_log_interval_stats()
 
         avg_loss = loss_epoch / num_batches if num_batches > 0 else 0.0
         if num_batches == 0:

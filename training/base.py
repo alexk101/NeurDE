@@ -545,8 +545,11 @@ class BaseTrainer(ABC):
             # Track loss history
             self.loss_history.append(avg_loss)
 
+            # Scheduler is stepped per batch inside train_epoch (stage trainers).
+            # ReduceLROnPlateau is stepped once per epoch here with the epoch loss.
             if self.scheduler is not None:
-                self.scheduler.step()
+                if type(self.scheduler).__name__ == "ReduceLROnPlateau":
+                    self.scheduler.step(avg_loss)
 
             # Update best-model tracking based on the returned loss
             updated_best = self.update_best_models(avg_loss, epoch)

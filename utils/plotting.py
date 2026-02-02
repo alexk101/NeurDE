@@ -141,7 +141,7 @@ def plot_cylinder_results(
 
     # Plot absolute error (own colorscale)
     im3 = ax3.imshow(Ma_err, cmap="hot")
-    ax3.set_title("|NN − GT|", fontsize=CYLINDER_TITLE_FONTSIZE)
+    ax3.set_title("|NN - GT|", fontsize=CYLINDER_TITLE_FONTSIZE)
     plt.colorbar(im3, ax=ax3)
     ax3.axis("off")
 
@@ -282,22 +282,22 @@ def plot_sod_results(
     # Row 2: Absolute error
     plt.subplot(2, 4, 5)
     plt.plot(err_rho, linewidth=2, color="C2")
-    plt.title("|NN − GT| Density", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.title("|NN - GT| Density", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
     plt.gca().axis("off")
 
     plt.subplot(2, 4, 6)
     plt.plot(err_T, linewidth=2, color="C2")
-    plt.title("|NN − GT| Temperature", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.title("|NN - GT| Temperature", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
     plt.gca().axis("off")
 
     plt.subplot(2, 4, 7)
     plt.plot(err_ux, linewidth=2, color="C2")
-    plt.title("|NN − GT| Velocity", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.title("|NN - GT| Velocity", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
     plt.gca().axis("off")
 
     plt.subplot(2, 4, 8)
     plt.plot(err_P, linewidth=2, color="C2")
-    plt.title("|NN − GT| Pressure", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+    plt.title("|NN - GT| Pressure", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
     plt.gca().axis("off")
 
     # Reduced whitespace
@@ -391,7 +391,7 @@ def plot_stage1_validation(
         axes[1].set_title(f"Geq ch{channel} NN", fontsize=CYLINDER_TITLE_FONTSIZE)
         axes[1].axis("off")
         axes[2].plot(err[mid, :], linewidth=2, color="C2")
-        axes[2].set_title("|GT − NN| L2", fontsize=CYLINDER_TITLE_FONTSIZE)
+        axes[2].set_title("|GT - NN| L2", fontsize=CYLINDER_TITLE_FONTSIZE)
         axes[2].axis("off")
     else:
         # Cylinder: 2D, shared colorscale for GT and NN
@@ -406,7 +406,7 @@ def plot_stage1_validation(
         plt.colorbar(im1, ax=axes[1])
         axes[1].axis("off")
         im2 = axes[2].imshow(err, cmap="hot")
-        axes[2].set_title("|GT − NN| L2", fontsize=CYLINDER_TITLE_FONTSIZE)
+        axes[2].set_title("|GT - NN| L2", fontsize=CYLINDER_TITLE_FONTSIZE)
         plt.colorbar(im2, ax=axes[2])
         axes[2].axis("off")
 

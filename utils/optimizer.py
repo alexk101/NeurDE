@@ -112,8 +112,8 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=N
             - final_div_factor (float, default: 100): Final LR = initial_lr / final_div_factor
 
         For "CosineAnnealingLR":
-            - T_max (int, optional): Number of epochs (default: total_epochs or 1000).
-              Pass total_epochs to get_scheduler when using this scheduler.
+            - T_max (int, optional): Number of steps, i.e. batches (default: total_steps).
+              Scheduler is stepped once per batch.
             - eta_min (float, default: 0): Minimum learning rate
 
         For "ReduceLROnPlateau":
@@ -147,8 +147,16 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=N
             div_factor=config.get("div_factor", 10),
             final_div_factor=config.get("final_div_factor", 100),
         )
+    elif scheduler_type == "CosineAnnealingWarmRestarts":
+        return torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer,
+            T_0=config.get("T_0", total_steps // 10),
+            T_mult=config.get("T_mult", 2),
+            eta_min=config.get("eta_min", 0),
+        )
     elif scheduler_type == "CosineAnnealingLR":
-        T_max = config.get("T_max", total_epochs if total_epochs is not None else 1000)
+        # T_max in steps (scheduler is stepped per batch)
+        T_max = config.get("T_max", total_steps)
         return torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
             T_max=T_max,

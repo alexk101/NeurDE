@@ -1,0 +1,6 @@
+# @package scheduler
+# CosineAnnealingLR scheduler configuration (stepped per batch)
+
+scheduler_type: CosineAnnealingLR
+# T_max set from total_steps (batches) at runtime; override here if needed
+eta_min: 5.01e-6

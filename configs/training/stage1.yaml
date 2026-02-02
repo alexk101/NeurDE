@@ -2,7 +2,7 @@
 # Stage 1 training configuration
 
 epochs: 1000
-lr: 1.0e-4
+lr: 1.0e-3
 model_dir: results/stage1
 
 validation:

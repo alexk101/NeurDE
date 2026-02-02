@@ -8,7 +8,7 @@ defaults:
   - model: neurde
   - training: stage1
   - optimizer: adamw
-  - scheduler: cosineannealing
+  - scheduler: cos_anneal_wr
   - dataset: stage1
   - logging: mlflow
 
