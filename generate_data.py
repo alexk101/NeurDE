@@ -18,7 +18,7 @@ import h5py
 import os
 
 from utils.solver import create_solver
-from utils.core import detach, set_seed
+from utils.core import detach, set_seed, get_device
 from utils.physics_generator import PhysicsGenerator
 
 
@@ -36,9 +36,7 @@ def main(cfg: DictConfig) -> None:
     set_seed(0)
 
     # Setup device
-    device = torch.device(
-        "cuda" if cfg.device >= 0 and torch.cuda.is_available() else "cpu"
-    )
+    device = get_device()
 
     # Load case configuration
     case_cfg = cfg.case

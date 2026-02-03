@@ -11,6 +11,17 @@ import random
 from typing import Dict, Any
 
 
+def get_device():
+    """
+    Get the device to use for training.
+    """
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        return torch.device("mps")
+    else:
+        return torch.device("cpu")
+
 def set_seed(seed=0):
     """
     Set random seeds for reproducibility.

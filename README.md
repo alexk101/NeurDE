@@ -41,6 +41,10 @@ Ensure you have the following prerequisites installed:
     Using uv (recommended):
     ```bash
     uv pip install -e .
+    # If you want to log metrics to wandb
+    uv sync --extra wandb
+    # if you wand to log metrics to mlflow
+    uv sync --extra mlflow
     ```
 
     Or using pip:

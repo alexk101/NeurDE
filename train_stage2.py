@@ -22,7 +22,7 @@ from utils.datasets import RolloutBatchDataset, Stage2Dataset
 from utils.data_io import load_data_stage_2
 from utils.optimizer import dispatch_optimizer, get_scheduler
 from utils.solver import create_solver
-from utils.core import set_seed, adapt_checkpoint_keys
+from utils.core import set_seed, adapt_checkpoint_keys, get_device
 from torch.utils.data import DataLoader
 
 
@@ -43,9 +43,7 @@ def main(cfg: DictConfig) -> None:
     cfg.stage = 2
 
     # Setup device
-    device = torch.device(
-        "cuda" if cfg.device >= 0 and torch.cuda.is_available() else "cpu"
-    )
+    device = get_device()
 
     # Load case configuration
     case_cfg = cfg.case

@@ -21,7 +21,7 @@ from training import Stage1Trainer, create_basis
 from utils.datasets import EquilibriumDataset
 from utils.data_io import load_equilibrium_state
 from utils.optimizer import dispatch_optimizer, get_scheduler
-from utils.core import set_seed
+from utils.core import set_seed, get_device
 from torch.utils.data import DataLoader
 
 
@@ -42,9 +42,7 @@ def main(cfg: DictConfig) -> None:
     cfg.stage = 1
 
     # Setup device
-    device = torch.device(
-        "cuda" if cfg.device >= 0 and torch.cuda.is_available() else "cpu"
-    )
+    device = get_device()
 
     # Load case configuration
     case_cfg = cfg.case
