@@ -279,8 +279,7 @@ class AdaptiveGradientClipper:
             else:
                 message = f"Non-finite gradient norm detected: {total_norm}. "
             trainer.log.warning(
-                message +
-                f"Zeroing grads and skipping clip/EMA update."
+                message + f"Zeroing grads and skipping clip/EMA update."
             )
             for param in model.parameters():
                 if param.grad is not None:

@@ -173,7 +173,9 @@ def main(cfg: DictConfig) -> None:
 
     # Print configuration
     print(f"Training {case_cfg.case_type} on {device}")
-    print(f"Epochs: {cfg.training.epochs}, Train samples: {train_end}, Val samples: {val_size}")
+    print(
+        f"Epochs: {cfg.training.epochs}, Train samples: {train_end}, Val samples: {val_size}"
+    )
     print(f"Model: {cfg.model.hidden_dim} hidden dim, {cfg.model.num_layers} layers")
 
     # Train

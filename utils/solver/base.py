@@ -7,10 +7,8 @@ shared across Cylinder and SOD cases.
 
 import torch
 import torch.nn as nn
-import numpy as np
 
 from ..phys.getFeq import F_pop_torch
-from ..core import detach
 
 
 class BaseLBSolver(nn.Module):
@@ -298,11 +296,11 @@ class BaseLBSolver(nn.Module):
             # Sum over the velocity dimension (dim=1) to get (B, Y, X)
             rho = torch.sum(F, dim=1)
             inv_rho = 1 / rho
-            
+
             # Use view(1, 9, 1, 1) to broadcast basis vectors across batch and grid
             ux = torch.sum(F * self.ex.view(1, 9, 1, 1), dim=1) * inv_rho
             uy = torch.sum(F * self.ey.view(1, 9, 1, 1), dim=1) * inv_rho
-            
+
             # Energy E also summed over velocity dimension
             E = torch.sum(G, dim=1) * 0.5 * inv_rho
             del inv_rho
@@ -333,7 +331,7 @@ class BaseLBSolver(nn.Module):
         """
         # Check if input is batched (3D: B, Y, X) or single (2D: Y, X)
         is_batched = T.dim() == 3
-        
+
         if is_batched:
             B = T.size(0)
             w = torch.zeros((B, self.Qn, self.Y, self.X), device=self.device)
@@ -375,14 +373,14 @@ class BaseLBSolver(nn.Module):
         """
         # Check if input is batched
         is_batched = F.dim() == 4
-        
+
         # Compute base relaxation time
         # muy may be calculated (Cylinder) or provided directly (SOD)
         tau_DL = self.muy / (rho * T) + 0.5
 
         # Compute deviation from equilibrium (matches original - no epsilon)
         diff = torch.abs(F - Feq) / Feq
-        
+
         if is_batched:
             # Batched case: (B, Q, Y, X) -> mean over Q (dim=1) -> (B, Y, X)
             EPS = diff.mean(dim=1)
@@ -402,7 +400,7 @@ class BaseLBSolver(nn.Module):
         alpha = torch.where(EPS >= 1, (1 / tau_DL).clone().detach(), alpha)
 
         tau_EPS = alpha * tau_DL
-        
+
         if is_batched:
             # Batched case: (B, Y, X) -> (B, 1, Y, X) -> expand to (B, Q, Y, X)
             B = F.size(0)
@@ -410,7 +408,7 @@ class BaseLBSolver(nn.Module):
         else:
             # Single case: (Y, X) -> (1, Y, X) -> expand to (Q, Y, X)
             tau = tau_EPS.reshape(1, self.Y, self.X).expand(self.Qn, self.Y, self.X)
-        
+
         tauT = 0.5 + (tau - 0.5) / self.Pr
         omega = 1 / tau
         omegaT = 1 / tauT
@@ -489,9 +487,9 @@ class BaseLBSolver(nn.Module):
         if F.dim() == 4:
             # Batched case: use einsum for proper broadcasting
             # F: (B, Q, Y, X), ex2/ey2/exey: (Q,)
-            P_xx = torch.einsum('bqyx,q->byx', F, self.ex2)
-            P_yy = torch.einsum('bqyx,q->byx', F, self.ey2)
-            P_xy = torch.einsum('bqyx,q->byx', F, self.exey)
+            P_xx = torch.einsum("bqyx,q->byx", F, self.ex2)
+            P_yy = torch.einsum("bqyx,q->byx", F, self.ey2)
+            P_xy = torch.einsum("bqyx,q->byx", F, self.exey)
         else:
             # Single case: original tensordot implementation
             P_xx = torch.tensordot(self.ex2, F, dims=([0], [0])).to(self.device)
@@ -571,10 +569,10 @@ class BaseLBSolver(nn.Module):
         """
         # Check if input is batched
         is_batched = F.dim() == 4
-        
+
         w = self.get_w(T)  # (Q, Y, X) or (B, Q, Y, X)
         qsx, qsy = self.get_qs(F, rho, ux, uy, T)  # (Y, X) or (B, Y, X)
-        
+
         if is_batched:
             # Batched case: (B, Q, Y, X)
             # qsx, qsy: (B, Y, X), ex, ey: (Q,), T: (B, Y, X)
@@ -584,7 +582,7 @@ class BaseLBSolver(nn.Module):
             qsx_expanded = qsx.unsqueeze(1)  # (B, 1, Y, X)
             qsy_expanded = qsy.unsqueeze(1)  # (B, 1, Y, X)
             T_expanded = T.unsqueeze(1)  # (B, 1, Y, X)
-            
+
             Gis = (
                 w
                 * (qsx_expanded * ex_expanded + qsy_expanded * ey_expanded)
@@ -617,29 +615,37 @@ class BaseLBSolver(nn.Module):
         """
         # Check if input is batched
         is_batched = Fo.dim() == 4
-        
+
         div = 1 + 2 * self.Uax
-        
+
         if is_batched:
             B = Fo.size(0)
             Fo1 = torch.zeros((B, self.Qn, self.Y, self.X), device=self.device)
             Go1 = torch.zeros((B, self.Qn, self.Y, self.X), device=self.device)
             Fo1[:, :, :, 1 : self.X] = (
-                Fo[:, :, :, 1 : self.X] * (1 - self.Uax) + Fo[:, :, :, 0 : self.X - 1] * self.Uax
+                Fo[:, :, :, 1 : self.X] * (1 - self.Uax)
+                + Fo[:, :, :, 0 : self.X - 1] * self.Uax
             )
             Go1[:, :, :, 1 : self.X] = (
-                Go[:, :, :, 1 : self.X] * (1 - self.Uax) + Go[:, :, :, 0 : self.X - 1] * self.Uax
+                Go[:, :, :, 1 : self.X] * (1 - self.Uax)
+                + Go[:, :, :, 0 : self.X - 1] * self.Uax
             )
-            Fo1[:, :, :, 0] = (Fo[:, :, :, 1] * self.Uax + Fo[:, :, :, 0] * (1 + self.Uax)) / div
-            Go1[:, :, :, 0] = (Go[:, :, :, 1] * self.Uax + Go[:, :, :, 0] * (1 + self.Uax)) / div
+            Fo1[:, :, :, 0] = (
+                Fo[:, :, :, 1] * self.Uax + Fo[:, :, :, 0] * (1 + self.Uax)
+            ) / div
+            Go1[:, :, :, 0] = (
+                Go[:, :, :, 1] * self.Uax + Go[:, :, :, 0] * (1 + self.Uax)
+            ) / div
         else:
             Fo1 = torch.zeros((self.Qn, self.Y, self.X), device=self.device)
             Go1 = torch.zeros((self.Qn, self.Y, self.X), device=self.device)
             Fo1[:, :, 1 : self.X] = (
-                Fo[:, :, 1 : self.X] * (1 - self.Uax) + Fo[:, :, 0 : self.X - 1] * self.Uax
+                Fo[:, :, 1 : self.X] * (1 - self.Uax)
+                + Fo[:, :, 0 : self.X - 1] * self.Uax
             )
             Go1[:, :, 1 : self.X] = (
-                Go[:, :, 1 : self.X] * (1 - self.Uax) + Go[:, :, 0 : self.X - 1] * self.Uax
+                Go[:, :, 1 : self.X] * (1 - self.Uax)
+                + Go[:, :, 0 : self.X - 1] * self.Uax
             )
             Fo1[:, :, 0] = (Fo[:, :, 1] * self.Uax + Fo[:, :, 0] * (1 + self.Uax)) / div
             Go1[:, :, 0] = (Go[:, :, 1] * self.Uax + Go[:, :, 0] * (1 + self.Uax)) / div

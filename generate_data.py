@@ -190,7 +190,7 @@ def main(cfg: DictConfig) -> None:
 
             # Get equilibrium distributions
             Feq = solver.get_Feq(rho, ux, uy, T)
-            
+
             # Use PhysicsGenerator for Geq ---
             sparse_fmt = getattr(solver, "sparse_format", "csr")
             Geq, khi, zetax, zetay = physics_gen.get_Geq(

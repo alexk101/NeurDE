@@ -100,14 +100,14 @@ class SODSolver(BaseLBSolver):
         """
         # Check if input is batched
         is_batched = F_pos_coll.dim() == 4
-        
+
         # Apply interpolation and shift (from base class)
         Fo1, Go1 = self.interpolate_domain(F_pos_coll, G_pos_coll)
         Fi, Gi = self.shift_operator(Fo1, Go1)
 
         # Apply boundary conditions inline
         coly = torch.arange(1, self.Y + 1, device=self.device) - 1
-        
+
         if is_batched:
             # Batched case: (B, Q, Y, X)
             Gi[:, :, coly, 0] = Gi[:, :, coly, 1]
@@ -152,7 +152,7 @@ class SODSolver(BaseLBSolver):
 
         # Analytic Feq (Solver)
         Fi0 = self.get_Feq(rho0, ux0, uy0, T0, Q=self.Qn)
-        
+
         # Newton-Raphson Geq (Generator)
         Gi0, khi, zetax, zetay = gen.get_Geq(
             rho0, ux0, uy0, T0, khi0, zetax0, zetay0, sparse_format="csr"
@@ -200,7 +200,7 @@ class SODSolver(BaseLBSolver):
 
         # Analytic Feq (Solver)
         Fi0 = self.get_Feq(rho0, ux0, uy0, T0, Q=self.Qn)
-        
+
         # Newton-Raphson Geq (Generator)
         Gi0, khi, zetax, zetay = gen.get_Geq(
             rho0, ux0, uy0, T0, khi0, zetax0, zetay0, sparse_format="csr"

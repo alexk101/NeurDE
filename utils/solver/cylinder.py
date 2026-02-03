@@ -12,7 +12,6 @@ import numpy as np
 from .base import BaseLBSolver
 from ..phys.getFeq import F_pop_torch
 from ..physics_generator import PhysicsGenerator
-from ..core import detach
 
 
 class CylinderSolver(BaseLBSolver):
@@ -143,14 +142,14 @@ class CylinderSolver(BaseLBSolver):
         """
         # Instantiate the generator
         gen = PhysicsGenerator(self)
-        
+
         # 1. Create dummy/initial fields for the BC calculation
         # We only care about the values at the masked positions
         rho = torch.ones((self.Y, self.X), device=self.device)
         ux = torch.full((self.Y, self.X), self.U0, device=self.device)
         uy = torch.zeros((self.Y, self.X), device=self.device)
         T = torch.full((self.Y, self.X), self.T0, device=self.device)
-        
+
         khi = np.zeros((self.Y, self.X))
         zetax = np.zeros((self.Y, self.X))
         zetay = np.zeros((self.Y, self.X))
@@ -164,12 +163,20 @@ class CylinderSolver(BaseLBSolver):
         # 3. Calculate Obstacle Distributions (Newton)
         self.Fi_obs_cyl = self.get_Feq_obs(rho_obs, ux_obs, uy_obs, T_obs)
         self.Gi_obs_cyl, khi_obs, zetax_obs, zetay_obs = gen.get_Geq_obs(
-            rho_obs, ux_obs, uy_obs, T_obs, khi, zetax, zetay, self.Obs,
-            use_dense_inv=self.use_dense_inv, sparse_format=self.sparse_format
+            rho_obs,
+            ux_obs,
+            uy_obs,
+            T_obs,
+            khi,
+            zetax,
+            zetay,
+            self.Obs,
+            use_dense_inv=self.use_dense_inv,
+            sparse_format=self.sparse_format,
         )
 
         # 4. Inlet Setup
-        # Note: We reuse the Lagrange multipliers (khi_obs...) from the previous step 
+        # Note: We reuse the Lagrange multipliers (khi_obs...) from the previous step
         # as a warm start, though for static caching it matters less.
         ux_obs[self.coly, 0] = self.U0
         uy_obs[self.coly, 0] = 0
@@ -179,10 +186,19 @@ class CylinderSolver(BaseLBSolver):
         # 5. Calculate Inlet Distributions (Newton)
         self.Fi_obs_Inlet = self.get_Feq_BC(rho_obs, ux_obs, uy_obs, T_obs)
         self.Gi_obs_Inlet, _, _, _ = gen.get_Geq_BC(
-            rho_obs, ux_obs, uy_obs, T_obs, khi_obs, zetax_obs, zetay_obs, self.coly, 0,
-            use_dense_inv=self.use_dense_inv, sparse_format=self.sparse_format
+            rho_obs,
+            ux_obs,
+            uy_obs,
+            T_obs,
+            khi_obs,
+            zetax_obs,
+            zetay_obs,
+            self.coly,
+            0,
+            use_dense_inv=self.use_dense_inv,
+            sparse_format=self.sparse_format,
         )
-        
+
         # Ensure they stay on device
         self.Gi_obs_Inlet = self.Gi_obs_Inlet.to(self.device)
         self.Gi_obs_cyl = self.Gi_obs_cyl.to(self.device)
@@ -323,14 +339,14 @@ class CylinderSolver(BaseLBSolver):
         """
         # Check if input is batched
         is_batched = Fi.dim() == 4
-        
+
         Fi_obs = Fi.clone()
         Gi_obs = Gi.clone()
 
         if is_batched:
             # Batched case: Fi is (B, Q, Y, X)
             B = Fi.size(0)
-            
+
             # Obstacle: broadcast the cached obstacle values across batch
             # Fi_obs_cyl is (Q, num_obs), need to apply to all batches
             Fi_obs[:, :, self.Obs] = Fi_obs_cyl.unsqueeze(0).expand(B, -1, -1)
@@ -384,8 +400,8 @@ class CylinderSolver(BaseLBSolver):
         tuple
             (Fi0, Gi0, khi, zetax, zetay) initial distributions and Lagrange multipliers
         """
-        gen = PhysicsGenerator(self) # Create temp generator
-        
+        gen = PhysicsGenerator(self)  # Create temp generator
+
         rho = torch.ones((self.Y, self.X))
         ux = torch.full((self.Y, self.X), self.U0)
         uy = torch.zeros((self.Y, self.X))

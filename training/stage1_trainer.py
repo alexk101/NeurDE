@@ -123,7 +123,12 @@ class Stage1Trainer(BaseTrainer):
             batch = next(iter(self.val_dataloader))
             rho, ux, uy, T, Geq_batch = batch
             input_data = torch.stack(
-                [rho.to(self.device), ux.to(self.device), uy.to(self.device), T.to(self.device)],
+                [
+                    rho.to(self.device),
+                    ux.to(self.device),
+                    uy.to(self.device),
+                    T.to(self.device),
+                ],
                 dim=1,
             )
             Geq_pred = self.model(input_data, self.basis)  # (batch*Y*X, 9)
@@ -174,7 +179,13 @@ class Stage1Trainer(BaseTrainer):
         val_loss = 0.0
         num_batches = 0
         with torch.no_grad():
-            for rho_batch, ux_batch, uy_batch, T_batch, Geq_batch in self.val_dataloader:
+            for (
+                rho_batch,
+                ux_batch,
+                uy_batch,
+                T_batch,
+                Geq_batch,
+            ) in self.val_dataloader:
                 input_data = torch.stack(
                     [rho_batch, ux_batch, uy_batch, T_batch], dim=1
                 ).to(self.device)
@@ -235,7 +246,10 @@ class Stage1Trainer(BaseTrainer):
                 self._last_epoch_weight_norm_avg = float(weight.item())
 
             self.optimizer.step()
-            if self.scheduler is not None and type(self.scheduler).__name__ != "ReduceLROnPlateau":
+            if (
+                self.scheduler is not None
+                and type(self.scheduler).__name__ != "ReduceLROnPlateau"
+            ):
                 self.scheduler.step()
 
             loss_val = loss.item()
@@ -293,7 +307,9 @@ class Stage1Trainer(BaseTrainer):
         self._last_epoch_train_loss = None
         return avg_loss
 
-    def build_epoch_log_metrics(self, epoch: int, primary_loss: float) -> Dict[str, Any]:
+    def build_epoch_log_metrics(
+        self, epoch: int, primary_loss: float
+    ) -> Dict[str, Any]:
         """
         Build epoch-level metrics for the experiment tracker.
 

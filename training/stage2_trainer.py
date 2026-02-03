@@ -242,10 +242,10 @@ class Stage2Trainer(BaseTrainer):
 
             F_seq = F_seq.to(self.device)
             G_seq = G_seq.to(self.device)
-            
+
             # Get batch size
             batch_size = F_seq.size(0)
-            
+
             # For batch_size=1, use non-batched path (squeeze to 3D) to match original
             if batch_size == 1:
                 Fi0 = F_seq[0, 0, ...]  # Shape: (Q, Y, X) - matches original
@@ -269,34 +269,41 @@ class Stage2Trainer(BaseTrainer):
                 if batch_size == 1:
                     # Non-batched path (matches original): (1, 4, Y, X)
                     inputs = torch.stack(
-                        [rho.unsqueeze(0), ux.unsqueeze(0), uy.unsqueeze(0), T.unsqueeze(0)],
-                        dim=1
+                        [
+                            rho.unsqueeze(0),
+                            ux.unsqueeze(0),
+                            uy.unsqueeze(0),
+                            T.unsqueeze(0),
+                        ],
+                        dim=1,
                     ).to(self.device)
-                    
+
                     # Geq_pred: (Y * X, 9)
                     Geq_pred = self.model(inputs, self.basis)
-                    
+
                     # Target: (Q, Y, X)
                     Geq_target = Geq_seq[0, rollout].to(self.device)
-                    
+
                     # Compute loss (matches original)
-                    inner_loss = l2_error(Geq_pred, Geq_target.permute(1, 2, 0).reshape(-1, 9))
+                    inner_loss = l2_error(
+                        Geq_pred, Geq_target.permute(1, 2, 0).reshape(-1, 9)
+                    )
                 else:
                     # Batched path: (B, 4, Y, X)
                     inputs = torch.stack([rho, ux, uy, T], dim=1).to(self.device)
-                    
+
                     # Geq_pred: (B * Y * X, 9)
                     Geq_pred = self.model(inputs, self.basis)
-                    
+
                     # Target: (B, Q, Y, X)
                     Geq_target = Geq_seq[:, rollout].to(self.device)
-                    
+
                     # Reshape target to (B * Y * X, 9) to match Geq_pred
                     target_flattened = Geq_target.permute(0, 2, 3, 1).reshape(-1, 9)
-                    
+
                     # Compute loss
                     inner_loss = l2_error(Geq_pred, target_flattened)
-                
+
                 total_loss += inner_loss
 
                 # TVD loss (if enabled and not first rollout)
@@ -318,7 +325,7 @@ class Stage2Trainer(BaseTrainer):
 
                 # Collision - compute Feq first (matches original order)
                 Feq = self.solver.get_Feq(rho, ux, uy, T)
-                
+
                 if batch_size == 1:
                     # Non-batched: reshape to (Q, Y, X)
                     Geq_pred_reshaped = Geq_pred.permute(1, 0).reshape(
@@ -326,10 +333,12 @@ class Stage2Trainer(BaseTrainer):
                     )
                 else:
                     # Batched: reshape to (B, Q, Y, X)
-                    Geq_pred_reshaped = Geq_pred.permute(1, 0).reshape(
-                        self.solver.Qn, -1, self.solver.Y, self.solver.X
-                    ).permute(1, 0, 2, 3)
-                
+                    Geq_pred_reshaped = (
+                        Geq_pred.permute(1, 0)
+                        .reshape(self.solver.Qn, -1, self.solver.Y, self.solver.X)
+                        .permute(1, 0, 2, 3)
+                    )
+
                 Fi0, Gi0 = self.solver.collision(
                     Fi0, Gi0, Feq, Geq_pred_reshaped, rho, ux, uy, T
                 )
@@ -370,7 +379,10 @@ class Stage2Trainer(BaseTrainer):
                 self._last_epoch_weight_norm_avg = float(weight.item())
 
             self.optimizer.step()
-            if self.scheduler is not None and type(self.scheduler).__name__ != "ReduceLROnPlateau":
+            if (
+                self.scheduler is not None
+                and type(self.scheduler).__name__ != "ReduceLROnPlateau"
+            ):
                 self.scheduler.step()
 
             # Track batch loss (exclude non-finite so one bad batch doesn't poison epoch metric)

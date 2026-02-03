@@ -10,15 +10,17 @@ import numpy as np
 from .phys.getGeq import levermore_Geq, levermore_Geq_Obs, levermore_Geq_BCs
 from .core import detach
 
+
 class PhysicsGenerator:
     """
     Generator for computing equilibrium distributions using Newton-Raphson methods.
     Used for generating ground truth data and calculating boundary conditions.
     """
+
     def __init__(self, solver):
         """
         Initialize with a solver instance to access lattice constants.
-        
+
         Parameters
         ----------
         solver : BaseLBSolver
@@ -26,7 +28,7 @@ class PhysicsGenerator:
         """
         self.solver = solver
         self.device = solver.device
-        
+
     def get_Geq(self, rho, ux, uy, T, khi, zetax, zetay, sparse_format="csr"):
         """
         Compute G equilibrium for the full grid (Standard).
@@ -61,7 +63,19 @@ class PhysicsGenerator:
         Geq = torch.tensor(Geq_np, dtype=torch.float32, device=self.device)
         return Geq, khi, zetax, zetay
 
-    def get_Geq_obs(self, rho, ux, uy, T, khi, zetax, zetay, obs_mask, use_dense_inv=True, sparse_format="csr"):
+    def get_Geq_obs(
+        self,
+        rho,
+        ux,
+        uy,
+        T,
+        khi,
+        zetax,
+        zetay,
+        obs_mask,
+        use_dense_inv=True,
+        sparse_format="csr",
+    ):
         """
         Compute G equilibrium with Obstacle handling.
         Wraps levermore_Geq_Obs.
@@ -94,7 +108,20 @@ class PhysicsGenerator:
         Geq_obs = torch.tensor(Geq_np, dtype=torch.float32, device=self.device)
         return Geq_obs, khi, zetax, zetay
 
-    def get_Geq_BC(self, rho, ux, uy, T, khi, zetax, zetay, coly, val=0, use_dense_inv=True, sparse_format="csr"):
+    def get_Geq_BC(
+        self,
+        rho,
+        ux,
+        uy,
+        T,
+        khi,
+        zetax,
+        zetay,
+        coly,
+        val=0,
+        use_dense_inv=True,
+        sparse_format="csr",
+    ):
         """
         Compute G equilibrium for Boundary Conditions (Inlet/Outlet).
         Wraps levermore_Geq_BCs.

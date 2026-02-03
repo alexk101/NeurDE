@@ -652,7 +652,7 @@ class BaseTrainer(ABC):
         vector_type : str
             Type of vector to get the norm of ("weights" or "grad")
         p_norm : float
-            The order of the norm (default: 2.0 for L2 norm). 
+            The order of the norm (default: 2.0 for L2 norm).
             Use float('inf') for max norm.
 
         Returns
@@ -662,7 +662,7 @@ class BaseTrainer(ABC):
         """
         device = next(model.parameters()).device
         total_norm = torch.zeros(1, dtype=torch.float32, device=device)
-        
+
         for p in model.parameters():
             if vector_type == "weights":
                 param_data = p.detach().float()
@@ -674,13 +674,13 @@ class BaseTrainer(ABC):
                 raise ValueError(f"Unknown vector_type: {vector_type}")
 
             # Accumulate the p-th power of the norm
-            if p_norm == float('inf'):
+            if p_norm == float("inf"):
                 total_norm = torch.max(total_norm, param_data.abs().max())
             else:
                 total_norm += param_data.norm(p_norm).pow(p_norm)
 
         # Return the p-th root to get the actual norm
-        if p_norm != float('inf'):
+        if p_norm != float("inf"):
             total_norm = total_norm.pow(1.0 / p_norm)
-            
+
         return total_norm
