@@ -58,6 +58,10 @@ class ExperimentTracker(ABC):
     def finish(self) -> None:
         """Clean up any resources before exiting."""
 
+    def get_run_id(self) -> Optional[str]:
+        """Return the current run ID if the backend supports resuming (e.g. MLflow)."""
+        return None
+
 
 class NullTracker(ExperimentTracker):
     """No-op tracker used when experiment tracking is disabled."""
@@ -192,9 +196,13 @@ class MlflowTracker(ExperimentTracker):
 
     Supports local (sqlite/file) and remote tracking via tracking_uri.
     See https://mlflow.org/docs/latest/self-hosting/ for server setup.
+    When run_id is provided (e.g. from a checkpoint when resuming), continues
+    logging to that existing run instead of creating a new one.
     """
 
-    def __init__(self, cfg: DictConfig, logging_cfg: DictConfig):
+    def __init__(
+        self, cfg: DictConfig, logging_cfg: DictConfig, run_id: Optional[str] = None
+    ):
         try:
             import mlflow
         except Exception as e:
@@ -232,12 +240,18 @@ class MlflowTracker(ExperimentTracker):
         project = tracker_cfg.get("project", None)
         run_name = tracker_cfg.get("run_name", None)
         run_tag = tracker_cfg.get("run_tag", None)
+        # Allow run_id from config (e.g. logging.tracker.run_id) for manual resume
+        resume_run_id = run_id or tracker_cfg.get("run_id", None)
 
         experiment_name = project or "default"
         mlflow.set_experiment(experiment_name)
 
         self._mlflow = mlflow
-        self._run = mlflow.start_run(run_name=run_name)
+        if resume_run_id is not None:
+            self._run = mlflow.start_run(run_id=resume_run_id)
+            log.info(f"Resumed MLflow run: run_id={resume_run_id}")
+        else:
+            self._run = mlflow.start_run(run_name=run_name)
 
         if run_tag is not None:
             mlflow.set_tag("run_tag", str(run_tag))
@@ -306,14 +320,21 @@ class MlflowTracker(ExperimentTracker):
     def finish(self) -> None:  # type: ignore[override]
         self._mlflow.end_run()
 
+    def get_run_id(self) -> Optional[str]:  # type: ignore[override]
+        if self._run is not None:
+            return self._run.info.run_id
+        return None
+
 
 def create_experiment_tracker(
-    cfg: DictConfig, logger: logging.Logger
+    cfg: DictConfig, logger: logging.Logger, run_id: Optional[str] = None
 ) -> ExperimentTracker:
     """
     Factory that creates an appropriate ExperimentTracker instance based on config.
 
     If tracking is disabled or configuration is missing, returns a NullTracker.
+    When resuming from a checkpoint, pass run_id (e.g. from checkpoint metadata) so
+    MLflow continues logging to the same run instead of creating a new one.
     """
     logging_cfg = getattr(cfg, "logging", None)
     if logging_cfg is None:
@@ -335,7 +356,7 @@ def create_experiment_tracker(
         if backend == "wandb":
             return WandbTracker(cfg, logging_cfg)
         elif backend == "mlflow":
-            return MlflowTracker(cfg, logging_cfg)
+            return MlflowTracker(cfg, logging_cfg, run_id=run_id)
         else:
             logger.warning(
                 f"Unknown experiment tracking backend '{backend}', disabling tracking."

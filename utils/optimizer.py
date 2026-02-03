@@ -11,6 +11,7 @@ All cases use the same optimizer and scheduler functions:
     - get_scheduler: Create learning rate scheduler
 """
 
+import math
 import torch
 from torch import optim
 from pytorch_optimizer import AdaBelief, Lion
@@ -118,6 +119,14 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=N
               Scheduler is stepped once per batch.
             - eta_min (float, default: 0): Minimum learning rate
 
+        For "CosineAnnealingWarmRestarts":
+            - T_0 (int, optional): Initial cycle length in steps. Ignored if num_cycles is set.
+            - T_mult (int, float, default: 2): Factor by which each cycle length grows.
+            - eta_min (float, default: 0): Minimum learning rate.
+            - num_cycles (int, optional): If set, T_0 is computed so that after this many
+              cycles the total step count equals total_steps (run ends at LR minimum).
+              Use this to avoid ending mid-cycle (at a restart peak).
+
         For "ReduceLROnPlateau":
             - mode (str, default: "min"): "min" or "max" - monitor decreasing or increasing metric
             - factor (float, default: 0.1): Factor to multiply LR by when reducing
@@ -154,11 +163,29 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=N
             final_div_factor=config.get("final_div_factor", 100),
         )
     elif scheduler_type == "CosineAnnealingWarmRestarts":
+        T_mult = config.get("T_mult", 2)
+        eta_min = config.get("eta_min", 0)
+        num_cycles = config.get("num_cycles", None)
+        if num_cycles is not None and num_cycles >= 1:
+            # Compute T_0 so that after num_cycles cycles we've done exactly total_steps.
+            # Cycle lengths: T_0, T_0*T_mult, T_0*T_mult^2, ... => sum = T_0*(T_mult^num_cycles - 1)/(T_mult - 1)
+            # Require sum = total_steps => T_0 = total_steps * (T_mult - 1) / (T_mult^num_cycles - 1)
+            mult_n = T_mult ** num_cycles
+            denom = mult_n - 1
+            if denom <= 0:
+                raise ValueError(
+                    f"CosineAnnealingWarmRestarts: T_mult^num_cycles - 1 must be positive "
+                    f"(T_mult={T_mult}, num_cycles={num_cycles})"
+                )
+            # Ceil T_0 so the last step (total_steps-1) stays inside the last cycle (at minimum LR)
+            T_0 = max(1, math.ceil(total_steps * (T_mult - 1) / denom))
+        else:
+            T_0 = config.get("T_0", total_steps // 10)
         return torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
             optimizer,
-            T_0=config.get("T_0", total_steps // 10),
-            T_mult=config.get("T_mult", 2),
-            eta_min=config.get("eta_min", 0),
+            T_0=T_0,
+            T_mult=T_mult,
+            eta_min=eta_min,
         )
     elif scheduler_type == "CosineAnnealingLR":
         # T_max in steps (scheduler is stepped per batch)

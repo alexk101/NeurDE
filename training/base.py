@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import os
 import glob
+import json
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from omegaconf import DictConfig
@@ -193,16 +194,44 @@ class BaseTrainer(ABC):
 
         self._image_log_count: int = 0
 
-        # Experiment tracker backend (may be a no-op tracker)
-        self.tracker: ExperimentTracker = create_experiment_tracker(cfg, self.log)
+        # When resuming, load checkpoint once to get MLflow run_id for resuming the same run
+        mlflow_run_id: Optional[str] = None
+        preloaded_checkpoint: Optional[Dict[str, Any]] = None
+        if resume_from is not None and os.path.exists(resume_from):
+            ckpt = torch.load(resume_from, map_location=self.device)
+            preloaded_checkpoint = ckpt
+            if isinstance(ckpt, dict) and "metadata" in ckpt:
+                mlflow_run_id = ckpt["metadata"].get("mlflow_run_id")
+
+        # Experiment tracker backend (may be a no-op tracker); pass run_id when resuming
+        self.tracker: ExperimentTracker = create_experiment_tracker(
+            cfg, self.log, run_id=mlflow_run_id
+        )
 
         # Create model directory
         os.makedirs(self.model_dir, exist_ok=True)
 
+        # Cursor file: (epoch, last_logged_batch_index). When resuming, we replay that epoch
+        # from batch 0 up to last_logged_batch_index without logging, then log from the next batch.
+        self._cursor_path = os.path.join(self.model_dir, "training_cursor.json")
+        self._log_from_batch_index: int = 0  # first batch index from which we log (0 = log from start)
+
         # Resume from checkpoint if provided
         self.start_epoch = 0
         if resume_from is not None:
-            self.start_epoch = self.resume_from_checkpoint(resume_from)
+            if preloaded_checkpoint is not None:
+                self.start_epoch = self.resume_from_checkpoint(
+                    checkpoint=preloaded_checkpoint
+                )
+            else:
+                self.start_epoch = self.resume_from_checkpoint(checkpoint_path=resume_from)
+            # If cursor exists for the epoch we're about to run, don't log until we pass that batch
+            self._log_from_batch_index = self._read_cursor_log_from(self.start_epoch)
+            if self._log_from_batch_index > 0:
+                self.log.info(
+                    f"Resuming mid-epoch: will run epoch {self.start_epoch + 1} from batch 0, "
+                    f"logging from batch {self._log_from_batch_index} onward (cursor file)"
+                )
 
         # Initialize adaptive gradient clipper
         adaptive_clip_config = getattr(cfg.training, "adaptive_clip", {})
@@ -260,16 +289,49 @@ class BaseTrainer(ABC):
         self.model.load_state_dict(state_dict)
         self.log.info(f"Checkpoint loaded from {checkpoint_path}")
 
-    def resume_from_checkpoint(self, checkpoint_path: str) -> int:
+    def _read_cursor_log_from(self, for_epoch: int) -> int:
+        """
+        Read cursor file. Returns the first batch index from which we should log.
+        Cursor stores (epoch, last_logged_batch_index). If it matches for_epoch,
+        we replay that epoch up to last_logged_batch_index without logging, then log from the next batch.
+        """
+        if not os.path.exists(self._cursor_path):
+            return 0
+        try:
+            with open(self._cursor_path) as f:
+                data = json.load(f)
+            if int(data.get("epoch", -1)) != for_epoch:
+                return 0
+            last_batch = int(data.get("batch_index", -1))
+            return last_batch + 1
+        except (json.JSONDecodeError, ValueError, OSError):
+            return 0
+
+    def _write_cursor(self, epoch: int, batch_index: int) -> None:
+        """Write cursor file (epoch, last batch at which we logged). On resume we replay that epoch and log only after this batch."""
+        try:
+            with open(self._cursor_path, "w") as f:
+                json.dump({"epoch": epoch, "batch_index": batch_index}, f)
+        except OSError as e:
+            self.log.warning(f"Could not write cursor file: {e}")
+
+    def resume_from_checkpoint(
+        self,
+        checkpoint_path: Optional[str] = None,
+        checkpoint: Optional[Dict[str, Any]] = None,
+    ) -> int:
         """
         Resume training from a full checkpoint.
 
         Loads model, optimizer, scheduler, epoch, and loss history.
+        Provide either checkpoint_path (load from file) or checkpoint (preloaded dict).
 
         Parameters
         ----------
-        checkpoint_path : str
-            Path to full checkpoint file
+        checkpoint_path : Optional[str]
+            Path to full checkpoint file (used if checkpoint is None)
+        checkpoint : Optional[Dict]
+            Preloaded checkpoint dict (avoids loading twice when resuming MLflow run)
 
         Returns
         -------
@@ -281,19 +343,23 @@ class BaseTrainer(ABC):
         ValueError
             If checkpoint is missing required keys (model_state_dict or optimizer_state_dict)
         """
-        if not os.path.exists(checkpoint_path):
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        if checkpoint is not None:
+            pass  # use provided dict
+        elif checkpoint_path is not None and os.path.exists(checkpoint_path):
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        else:
+            if checkpoint_path:
+                raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+            raise ValueError("Provide either checkpoint_path or checkpoint")
 
         # Check if it's a full checkpoint or just a state_dict
         if (
             "model_state_dict" not in checkpoint
             and "optimizer_state_dict" not in checkpoint
         ):
-            # This looks like just a state_dict, not a full checkpoint
+            path_desc = checkpoint_path or "(in-memory checkpoint)"
             raise ValueError(
-                f"Checkpoint {checkpoint_path} appears to be a model state_dict only, "
+                f"Checkpoint {path_desc} appears to be a model state_dict only, "
                 "not a full checkpoint. Use 'pretrained_path' for loading model weights only, "
                 "or use 'resume_from' with a full checkpoint created by save_full_checkpoint()."
             )
@@ -326,9 +392,26 @@ class BaseTrainer(ABC):
             self.best_losses = checkpoint["best_losses"]
         if "best_model_paths" in checkpoint:
             self.best_model_paths = checkpoint["best_model_paths"]
+        if "global_step" in checkpoint:
+            self.global_step = int(checkpoint["global_step"])
 
-        self.log.info(f"Resumed from checkpoint: {checkpoint_path}")
-        self.log.info(f"Resuming from epoch {start_epoch + 1}")
+        # Load adaptive gradient clipper state (EMA, buffer, etc.)
+        if "adaptive_clipper_state_dict" in checkpoint:
+            try:
+                self.adaptive_clipper.load_state_dict(
+                    checkpoint["adaptive_clipper_state_dict"], strict=False
+                )
+                self.log.info("Restored adaptive gradient clipper state from checkpoint.")
+            except (KeyError, ValueError) as e:
+                self.log.info(
+                    f"Warning: Could not load adaptive clipper state: {e}. "
+                    "Clipper will reinitialize (warmup)."
+                )
+
+        self.log.info(
+            f"Resumed from checkpoint: {checkpoint_path or '(preloaded)'}"
+        )
+        self.log.info(f"Resuming from epoch {start_epoch + 1}, global_step={self.global_step}")
         if self.loss_history:
             self.log.info(f"Previous loss history: {len(self.loss_history)} epochs")
         return start_epoch + 1
@@ -392,13 +475,18 @@ class BaseTrainer(ABC):
             "loss_history": self.loss_history,
             "best_losses": self.best_losses,
             "best_model_paths": self.best_model_paths,
+            "global_step": self.global_step,
+            "adaptive_clipper_state_dict": self.adaptive_clipper.state_dict(),
         }
 
         if self.scheduler is not None:
             checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
 
-        if metadata is not None:
-            checkpoint["metadata"] = metadata
+        meta = dict(metadata) if metadata else {}
+        if hasattr(self.tracker, "get_run_id") and self.tracker.get_run_id():
+            meta["mlflow_run_id"] = self.tracker.get_run_id()
+        if meta:
+            checkpoint["metadata"] = meta
 
         if path is None:
             path = os.path.join(
@@ -515,7 +603,7 @@ class BaseTrainer(ABC):
         }
 
     @abstractmethod
-    def train_epoch(self, epoch: int) -> float:
+    def train_epoch(self, epoch: int, log_from_batch_index: int = 0) -> float:
         """
         Train for one epoch.
 
@@ -523,6 +611,9 @@ class BaseTrainer(ABC):
         ----------
         epoch : int
             Current epoch number
+        log_from_batch_index : int, optional
+            When resuming mid-epoch, do not log (terminal/tracker) until this batch index.
+            All batches are run (forward/backward/step); only logging is skipped until then.
 
         Returns
         -------
@@ -539,8 +630,13 @@ class BaseTrainer(ABC):
         epochs : int
             Number of epochs to train
         """
+        log_from_batch = self._log_from_batch_index
         for epoch in range(self.start_epoch, epochs):
-            avg_loss = self.train_epoch(epoch)
+            # Only on first epoch after resume: don't log until we pass the batch in the cursor
+            first_log_batch = log_from_batch if epoch == self.start_epoch else 0
+            if epoch != self.start_epoch:
+                log_from_batch = 0
+            avg_loss = self.train_epoch(epoch, log_from_batch_index=first_log_batch)
 
             # Track loss history
             self.loss_history.append(avg_loss)

@@ -1,7 +1,13 @@
 # @package scheduler
-# CosineAnnealingWarmRestarts scheduler configuration
+# CosineAnnealingWarmRestarts: cosine decay with warm restarts (stepped per batch).
+# To end training at a LR minimum (not at a restart peak), set num_cycles so that
+# total_steps lands at the end of the last cycle. T_0 is then computed from total_steps.
 
 scheduler_type: CosineAnnealingWarmRestarts
-T_0: 500
+# Number of cycles; T_0 is auto-computed so run ends at eta_min (end of last cycle).
+# Omit to use explicit T_0 instead (run may end mid-cycle).
+num_cycles: 5
 T_mult: 2
 eta_min: 5.01e-6
+# Optional: override num_cycles and use fixed first-cycle length (run may end at a peak):
+# T_0: 500

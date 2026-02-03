@@ -24,3 +24,6 @@ tracker:
   project: "NeurDE"
   run_name: "${run_name}"
   run_tag: "${run_tag}"
+  # Optional: set run_id to resume an existing MLflow run (e.g. when resuming from checkpoint).
+  # If you pass resume_from=path/to/checkpoint.pt, run_id is read from the checkpoint automatically.
+  # run_id: null

@@ -196,7 +196,7 @@ class Stage1Trainer(BaseTrainer):
                 num_batches += 1
         return val_loss / num_batches if num_batches > 0 else 0.0
 
-    def train_epoch(self, epoch: int) -> float:
+    def train_epoch(self, epoch: int, log_from_batch_index: int = 0) -> float:
         """
         Train for one epoch.
 
@@ -204,6 +204,8 @@ class Stage1Trainer(BaseTrainer):
         ----------
         epoch : int
             Current epoch number
+        log_from_batch_index : int, optional
+            When resuming mid-epoch, do not log until this batch index. All batches are run.
 
         Returns
         -------
@@ -265,6 +267,10 @@ class Stage1Trainer(BaseTrainer):
             # Global step for experiment tracking
             self.global_step += 1
 
+            # Only log (terminal + tracker) from log_from_batch_index onward (mid-epoch resume)
+            if batch_idx < log_from_batch_index:
+                continue
+
             # Terminal logging every N batches
             if (
                 self.log_to_screen
@@ -290,6 +296,8 @@ class Stage1Trainer(BaseTrainer):
                     metrics, step=self.global_step, step_metric="batch"
                 )
                 self.adaptive_clipper.reset_log_interval_stats()
+                # Cursor: last batch we logged at (so on resume we don't log until we pass this)
+                self._write_cursor(epoch, batch_idx)
 
         avg_loss = loss_epoch / num_batches if num_batches > 0 else 0.0
         if num_batches == 0:
