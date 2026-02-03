@@ -286,7 +286,7 @@ class Stage1Trainer(BaseTrainer):
         if self.val_dataloader is not None:
             val_loss = self._validate()
             self.log.info(
-                f"Epoch: {epoch}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
+                f"Epoch: {epoch+1}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
             )
             self._last_epoch_train_loss = float(avg_loss)
             return val_loss

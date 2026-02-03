@@ -1,6 +1,9 @@
 # @package training
 # Stage 1 training configuration
 
+defaults:
+  - /scheduler: cos_anneal_wr
+
 epochs: 1000
 lr: 1.0e-3
 model_dir: results/stage1
@@ -16,7 +19,7 @@ adaptive_clip:
   enabled: true
   alpha: 0.97      # EMA decay factor for gradient norm statistics
   z_thresh: 2.5   # Z-score threshold for triggering adaptive clipping
-  warmup_steps: 1000 # Number of steps to collect gradient norms before EMA initialization
+  warmup_steps: 200 # Number of steps to collect gradient norms before EMA initialization
   mode: "zscore"  # Clipping mode: "zscore" or "percentile"
   clip_option: "adaptive_scaling"  # For zscore mode: "adaptive_scaling" or "mean"
   clip_factor: 1.0  # Multiplier for adaptive scaling threshold

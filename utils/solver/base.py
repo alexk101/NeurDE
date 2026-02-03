@@ -193,10 +193,7 @@ class BaseLBSolver(nn.Module):
             Temperature T = iCv * (E - (ux^2 + uy^2) / 2)
         """
         uu = self.dot_prod(ux, uy)
-        T = self.iCv * (E - uu / 2)
-        # Clamp temperature to avoid negative or invalid values
-        T = torch.clamp(T, min=1e-6)
-        return T
+        return self.iCv * (E - uu / 2)
 
     def get_heat_flux_Maxwellian(self, rho, ux, uy, E, T):
         """
@@ -242,8 +239,6 @@ class BaseLBSolver(nn.Module):
             Density (Y, X)
         """
         rho = torch.sum(F, dim=0).to(self.device)
-        # Avoid division by zero - ensure minimum density
-        rho = torch.clamp(rho, min=1e-6)
         return rho
 
     def get_momentum(self, F):
@@ -288,22 +283,38 @@ class BaseLBSolver(nn.Module):
         Parameters
         ----------
         F : torch.Tensor
-            F distribution function (Q, Y, X)
+            F distribution function (Q, Y, X) or batched (B, Q, Y, X)
         G : torch.Tensor
-            G distribution function (Q, Y, X)
+            G distribution function (Q, Y, X) or batched (B, Q, Y, X)
 
         Returns
         -------
         tuple
-            (rho, ux, uy, E) macroscopic variables (Y, X)
+            (rho, ux, uy, E) macroscopic variables (Y, X) or batched (B, Y, X)
         """
-        rho = self.get_density(F)
-        inv_rho = 1 / rho
-        rho_ux, rho_uy = self.get_momentum(F)
-        ux = rho_ux * inv_rho
-        uy = rho_uy * inv_rho
-        E = self.get_energy_density(G) * 0.5 * inv_rho
-        del inv_rho, rho_ux, rho_uy
+        # Check if input is batched (4D: B, Q, Y, X) or single (3D: Q, Y, X)
+        if F.dim() == 4:
+            # Batched case: (B, Q, Y, X)
+            # Sum over the velocity dimension (dim=1) to get (B, Y, X)
+            rho = torch.sum(F, dim=1)
+            inv_rho = 1 / rho
+            
+            # Use view(1, 9, 1, 1) to broadcast basis vectors across batch and grid
+            ux = torch.sum(F * self.ex.view(1, 9, 1, 1), dim=1) * inv_rho
+            uy = torch.sum(F * self.ey.view(1, 9, 1, 1), dim=1) * inv_rho
+            
+            # Energy E also summed over velocity dimension
+            E = torch.sum(G, dim=1) * 0.5 * inv_rho
+            del inv_rho
+        else:
+            # Single case: (Q, Y, X) - original implementation
+            rho = self.get_density(F)
+            inv_rho = 1 / rho
+            rho_ux, rho_uy = self.get_momentum(F)
+            ux = rho_ux * inv_rho
+            uy = rho_uy * inv_rho
+            E = self.get_energy_density(G) * 0.5 * inv_rho
+            del inv_rho, rho_ux, rho_uy
         return rho, ux, uy, E
 
     def get_w(self, T):
@@ -313,18 +324,30 @@ class BaseLBSolver(nn.Module):
         Parameters
         ----------
         T : torch.Tensor
-            Temperature (Y, X)
+            Temperature (Y, X) or batched (B, Y, X)
 
         Returns
         -------
         torch.Tensor
-            Weights (Q, Y, X)
+            Weights (Q, Y, X) or batched (B, Q, Y, X)
         """
-        w = torch.zeros((self.Qn, self.Y, self.X)).to(self.device)
-        one_minus_T = 1 - T
-        w[:4, :, :] = one_minus_T * T * 0.5
-        w[4:8, :, :] = T**2 * 0.25
-        w[8, :, :] = one_minus_T**2
+        # Check if input is batched (3D: B, Y, X) or single (2D: Y, X)
+        is_batched = T.dim() == 3
+        
+        if is_batched:
+            B = T.size(0)
+            w = torch.zeros((B, self.Qn, self.Y, self.X), device=self.device)
+            one_minus_T = 1 - T  # (B, Y, X)
+            # Add Q dimension: T.unsqueeze(1) -> (B, 1, Y, X), then slice
+            w[:, :4, :, :] = (one_minus_T * T * 0.5).unsqueeze(1).expand(-1, 4, -1, -1)
+            w[:, 4:8, :, :] = (T**2 * 0.25).unsqueeze(1).expand(-1, 4, -1, -1)
+            w[:, 8, :, :] = one_minus_T**2
+        else:
+            w = torch.zeros((self.Qn, self.Y, self.X), device=self.device)
+            one_minus_T = 1 - T
+            w[:4, :, :] = one_minus_T * T * 0.5
+            w[4:8, :, :] = T**2 * 0.25
+            w[8, :, :] = one_minus_T**2
         del one_minus_T
         return w
 
@@ -337,28 +360,35 @@ class BaseLBSolver(nn.Module):
         Parameters
         ----------
         rho : torch.Tensor
-            Density (Y, X)
+            Density (Y, X) or batched (B, Y, X)
         T : torch.Tensor
-            Temperature (Y, X)
+            Temperature (Y, X) or batched (B, Y, X)
         F : torch.Tensor
-            F distribution function (Q, Y, X)
+            F distribution function (Q, Y, X) or batched (B, Q, Y, X)
         Feq : torch.Tensor
-            Equilibrium F distribution function (Q, Y, X)
+            Equilibrium F distribution function (Q, Y, X) or batched (B, Q, Y, X)
 
         Returns
         -------
         tuple
-            (omega, omegaT) relaxation frequencies (Q, Y, X)
+            (omega, omegaT) relaxation frequencies (Q, Y, X) or batched (B, Q, Y, X)
         """
+        # Check if input is batched
+        is_batched = F.dim() == 4
+        
         # Compute base relaxation time
         # muy may be calculated (Cylinder) or provided directly (SOD)
         tau_DL = self.muy / (rho * T) + 0.5
 
-        # Compute deviation from equilibrium
-        # Add small epsilon to Feq to prevent division by zero
-        Feq_safe = Feq + 1e-10
-        diff = torch.abs(F - Feq) / Feq_safe
-        EPS = diff.mean(dim=0)
+        # Compute deviation from equilibrium (matches original - no epsilon)
+        diff = torch.abs(F - Feq) / Feq
+        
+        if is_batched:
+            # Batched case: (B, Q, Y, X) -> mean over Q (dim=1) -> (B, Y, X)
+            EPS = diff.mean(dim=1)
+        else:
+            # Single case: (Q, Y, X) -> mean over Q (dim=0) -> (Y, X)
+            EPS = diff.mean(dim=0)
 
         # Adaptive relaxation parameter
         alpha = torch.ones_like(EPS)
@@ -372,7 +402,15 @@ class BaseLBSolver(nn.Module):
         alpha = torch.where(EPS >= 1, (1 / tau_DL).clone().detach(), alpha)
 
         tau_EPS = alpha * tau_DL
-        tau = tau_EPS.reshape(1, self.Y, self.X).expand(self.Qn, self.Y, self.X)
+        
+        if is_batched:
+            # Batched case: (B, Y, X) -> (B, 1, Y, X) -> expand to (B, Q, Y, X)
+            B = F.size(0)
+            tau = tau_EPS.unsqueeze(1).expand(B, self.Qn, self.Y, self.X)
+        else:
+            # Single case: (Y, X) -> (1, Y, X) -> expand to (Q, Y, X)
+            tau = tau_EPS.reshape(1, self.Y, self.X).expand(self.Qn, self.Y, self.X)
+        
         tauT = 0.5 + (tau - 0.5) / self.Pr
         omega = 1 / tau
         omegaT = 1 / tauT
@@ -440,16 +478,25 @@ class BaseLBSolver(nn.Module):
         Parameters
         ----------
         F : torch.Tensor
-            F distribution function (Q, Y, X)
+            F distribution function (Q, Y, X) or batched (B, Q, Y, X)
 
         Returns
         -------
         tuple
-            (P_xx, P_yy, P_xy) pressure tensor components (Y, X)
+            (P_xx, P_yy, P_xy) pressure tensor components (Y, X) or batched (B, Y, X)
         """
-        P_xx = torch.tensordot(self.ex2, F, dims=([0], [0])).to(self.device)
-        P_yy = torch.tensordot(self.ey2, F, dims=([0], [0])).to(self.device)
-        P_xy = torch.tensordot(self.exey, F, dims=([0], [0])).to(self.device)
+        # Check if input is batched (4D: B, Q, Y, X) or single (3D: Q, Y, X)
+        if F.dim() == 4:
+            # Batched case: use einsum for proper broadcasting
+            # F: (B, Q, Y, X), ex2/ey2/exey: (Q,)
+            P_xx = torch.einsum('bqyx,q->byx', F, self.ex2)
+            P_yy = torch.einsum('bqyx,q->byx', F, self.ey2)
+            P_xy = torch.einsum('bqyx,q->byx', F, self.exey)
+        else:
+            # Single case: original tensordot implementation
+            P_xx = torch.tensordot(self.ex2, F, dims=([0], [0])).to(self.device)
+            P_yy = torch.tensordot(self.ey2, F, dims=([0], [0])).to(self.device)
+            P_xy = torch.tensordot(self.exey, F, dims=([0], [0])).to(self.device)
         return P_xx, P_yy, P_xy
 
     def get_pressure(self, T, rho):
@@ -478,20 +525,20 @@ class BaseLBSolver(nn.Module):
         Parameters
         ----------
         F : torch.Tensor
-            F distribution function (Q, Y, X)
+            F distribution function (Q, Y, X) or batched (B, Q, Y, X)
         rho : torch.Tensor
-            Density (Y, X)
+            Density (Y, X) or batched (B, Y, X)
         ux : torch.Tensor
-            x-component of velocity (Y, X)
+            x-component of velocity (Y, X) or batched (B, Y, X)
         uy : torch.Tensor
-            y-component of velocity (Y, X)
+            y-component of velocity (Y, X) or batched (B, Y, X)
         T : torch.Tensor
-            Temperature (Y, X)
+            Temperature (Y, X) or batched (B, Y, X)
 
         Returns
         -------
         tuple
-            (qsx, qsy) non-equilibrium heat flux components (Y, X)
+            (qsx, qsy) non-equilibrium heat flux components (Y, X) or batched (B, Y, X)
         """
         P_eqxx, P_eqyy, P_eqxy = self.get_maxwellian_pressure_tensor(rho, ux, uy, T)
         P_xx, P_yy, P_xy = self.get_pressure_tensor(F)
@@ -507,28 +554,49 @@ class BaseLBSolver(nn.Module):
         Parameters
         ----------
         F : torch.Tensor
-            F distribution function (Q, Y, X)
+            F distribution function (Q, Y, X) or batched (B, Q, Y, X)
         rho : torch.Tensor
-            Density (Y, X)
+            Density (Y, X) or batched (B, Y, X)
         ux : torch.Tensor
-            x-component of velocity (Y, X)
+            x-component of velocity (Y, X) or batched (B, Y, X)
         uy : torch.Tensor
-            y-component of velocity (Y, X)
+            y-component of velocity (Y, X) or batched (B, Y, X)
         T : torch.Tensor
-            Temperature (Y, X)
+            Temperature (Y, X) or batched (B, Y, X)
 
         Returns
         -------
         torch.Tensor
-            G distribution function (Q, Y, X)
+            G distribution function (Q, Y, X) or batched (B, Q, Y, X)
         """
-        w = self.get_w(T)
-        qsx, qsy = self.get_qs(F, rho, ux, uy, T)
-        Gis = (
-            w
-            * (qsx * self.ex[:, None, None] + qsy * self.ey[:, None, None])
-            / T[None, :, :]
-        )
+        # Check if input is batched
+        is_batched = F.dim() == 4
+        
+        w = self.get_w(T)  # (Q, Y, X) or (B, Q, Y, X)
+        qsx, qsy = self.get_qs(F, rho, ux, uy, T)  # (Y, X) or (B, Y, X)
+        
+        if is_batched:
+            # Batched case: (B, Q, Y, X)
+            # qsx, qsy: (B, Y, X), ex, ey: (Q,), T: (B, Y, X)
+            # Need to expand ex, ey to (1, Q, 1, 1) for broadcasting
+            ex_expanded = self.ex.view(1, 9, 1, 1)  # (1, Q, 1, 1)
+            ey_expanded = self.ey.view(1, 9, 1, 1)  # (1, Q, 1, 1)
+            qsx_expanded = qsx.unsqueeze(1)  # (B, 1, Y, X)
+            qsy_expanded = qsy.unsqueeze(1)  # (B, 1, Y, X)
+            T_expanded = T.unsqueeze(1)  # (B, 1, Y, X)
+            
+            Gis = (
+                w
+                * (qsx_expanded * ex_expanded + qsy_expanded * ey_expanded)
+                / T_expanded
+            )
+        else:
+            # Single case: original implementation
+            Gis = (
+                w
+                * (qsx * self.ex[:, None, None] + qsy * self.ey[:, None, None])
+                / T[None, :, :]
+            )
         return Gis
 
     def interpolate_domain(self, Fo, Go):
@@ -538,26 +606,43 @@ class BaseLBSolver(nn.Module):
         Parameters
         ----------
         Fo : torch.Tensor
-            F distribution before interpolation (Q, Y, X)
+            F distribution before interpolation (Q, Y, X) or batched (B, Q, Y, X)
         Go : torch.Tensor
-            G distribution before interpolation (Q, Y, X)
+            G distribution before interpolation (Q, Y, X) or batched (B, Q, Y, X)
 
         Returns
         -------
         tuple
-            (Fo1, Go1) interpolated distributions (Q, Y, X)
+            (Fo1, Go1) interpolated distributions (Q, Y, X) or batched (B, Q, Y, X)
         """
+        # Check if input is batched
+        is_batched = Fo.dim() == 4
+        
         div = 1 + 2 * self.Uax
-        Fo1 = torch.zeros((self.Qn, self.Y, self.X)).to(self.device)
-        Go1 = torch.zeros((self.Qn, self.Y, self.X)).to(self.device)
-        Fo1[:, :, 1 : self.X] = (
-            Fo[:, :, 1 : self.X] * (1 - self.Uax) + Fo[:, :, 0 : self.X - 1] * self.Uax
-        )
-        Go1[:, :, 1 : self.X] = (
-            Go[:, :, 1 : self.X] * (1 - self.Uax) + Go[:, :, 0 : self.X - 1] * self.Uax
-        )
-        Fo1[:, :, 0] = (Fo[:, :, 1] * self.Uax + Fo[:, :, 0] * (1 + self.Uax)) / div
-        Go1[:, :, 0] = (Go[:, :, 1] * self.Uax + Go[:, :, 0] * (1 + self.Uax)) / div
+        
+        if is_batched:
+            B = Fo.size(0)
+            Fo1 = torch.zeros((B, self.Qn, self.Y, self.X), device=self.device)
+            Go1 = torch.zeros((B, self.Qn, self.Y, self.X), device=self.device)
+            Fo1[:, :, :, 1 : self.X] = (
+                Fo[:, :, :, 1 : self.X] * (1 - self.Uax) + Fo[:, :, :, 0 : self.X - 1] * self.Uax
+            )
+            Go1[:, :, :, 1 : self.X] = (
+                Go[:, :, :, 1 : self.X] * (1 - self.Uax) + Go[:, :, :, 0 : self.X - 1] * self.Uax
+            )
+            Fo1[:, :, :, 0] = (Fo[:, :, :, 1] * self.Uax + Fo[:, :, :, 0] * (1 + self.Uax)) / div
+            Go1[:, :, :, 0] = (Go[:, :, :, 1] * self.Uax + Go[:, :, :, 0] * (1 + self.Uax)) / div
+        else:
+            Fo1 = torch.zeros((self.Qn, self.Y, self.X), device=self.device)
+            Go1 = torch.zeros((self.Qn, self.Y, self.X), device=self.device)
+            Fo1[:, :, 1 : self.X] = (
+                Fo[:, :, 1 : self.X] * (1 - self.Uax) + Fo[:, :, 0 : self.X - 1] * self.Uax
+            )
+            Go1[:, :, 1 : self.X] = (
+                Go[:, :, 1 : self.X] * (1 - self.Uax) + Go[:, :, 0 : self.X - 1] * self.Uax
+            )
+            Fo1[:, :, 0] = (Fo[:, :, 1] * self.Uax + Fo[:, :, 0] * (1 + self.Uax)) / div
+            Go1[:, :, 0] = (Go[:, :, 1] * self.Uax + Go[:, :, 0] * (1 + self.Uax)) / div
         return Fo1, Go1
 
     def collision(self, F, G, Feq, Geq, rho, ux, uy, T):
@@ -567,26 +652,27 @@ class BaseLBSolver(nn.Module):
         Parameters
         ----------
         F : torch.Tensor
-            F distribution function (Q, Y, X)
+            F distribution function (Q, Y, X) or batched (B, Q, Y, X)
         G : torch.Tensor
-            G distribution function (Q, Y, X)
+            G distribution function (Q, Y, X) or batched (B, Q, Y, X)
         Feq : torch.Tensor
-            Equilibrium F distribution function (Q, Y, X)
+            Equilibrium F distribution function (Q, Y, X) or batched (B, Q, Y, X)
         Geq : torch.Tensor
-            Equilibrium G distribution function (Q, Y, X)
+            Equilibrium G distribution function (Q, Y, X) or batched (B, Q, Y, X)
         rho : torch.Tensor
-            Density (Y, X)
+            Density (Y, X) or batched (B, Y, X)
         ux : torch.Tensor
-            x-component of velocity (Y, X)
+            x-component of velocity (Y, X) or batched (B, Y, X)
         uy : torch.Tensor
-            y-component of velocity (Y, X)
+            y-component of velocity (Y, X) or batched (B, Y, X)
         T : torch.Tensor
-            Temperature (Y, X)
+            Temperature (Y, X) or batched (B, Y, X)
 
         Returns
         -------
         tuple
-            (F_pos_collision, G_pos_collision) post-collision distributions (Q, Y, X)
+            (F_pos_collision, G_pos_collision) post-collision distributions
+            (Q, Y, X) or batched (B, Q, Y, X)
         """
         omega, omegaT = self.get_relaxation_time(rho, T, F, Feq)
         Gis = self.from_macro_to_lattice_Gis(F, rho, ux, uy, T)
@@ -601,17 +687,22 @@ class BaseLBSolver(nn.Module):
         Parameters
         ----------
         F : torch.Tensor
-            F distribution function (Q, Y, X)
+            F distribution function (Q, Y, X) or batched (B, Q, Y, X)
         G : torch.Tensor
-            G distribution function (Q, Y, X)
+            G distribution function (Q, Y, X) or batched (B, Q, Y, X)
 
         Returns
         -------
         tuple
-            (Fi, Gi) shifted distributions (Q, Y, X)
+            (Fi, Gi) shifted distributions (Q, Y, X) or batched (B, Q, Y, X)
         """
-        Fi = F[self.q_indices, self.Y_indices, self.X_indices]
-        Gi = G[self.q_indices, self.Y_indices, self.X_indices]
+        # Check if input is vectorized (4D: B, Q, Y, X) or single (3D: Q, Y, X)
+        if F.dim() == 4:
+            Fi = F[:, self.q_indices, self.Y_indices, self.X_indices]
+            Gi = G[:, self.q_indices, self.Y_indices, self.X_indices]
+        else:
+            Fi = F[self.q_indices, self.Y_indices, self.X_indices]
+            Gi = G[self.q_indices, self.Y_indices, self.X_indices]
         return Fi, Gi
 
     def streaming(self, F_pos_coll, G_pos_coll):
@@ -624,14 +715,14 @@ class BaseLBSolver(nn.Module):
         Parameters
         ----------
         F_pos_coll : torch.Tensor
-            Post-collision F distribution (Q, Y, X)
+            Post-collision F distribution (Q, Y, X) or batched (B, Q, Y, X)
         G_pos_coll : torch.Tensor
-            Post-collision G distribution (Q, Y, X)
+            Post-collision G distribution (Q, Y, X) or batched (B, Q, Y, X)
 
         Returns
         -------
         tuple
-            (Fi, Gi) streamed distributions (Q, Y, X)
+            (Fi, Gi) streamed distributions (Q, Y, X) or batched (B, Q, Y, X)
         """
         Fo1, Go1 = self.interpolate_domain(F_pos_coll, G_pos_coll)
         Fi, Gi = self.shift_operator(Fo1, Go1)

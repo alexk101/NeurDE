@@ -242,8 +242,17 @@ class Stage2Trainer(BaseTrainer):
 
             F_seq = F_seq.to(self.device)
             G_seq = G_seq.to(self.device)
-            Fi0 = F_seq[0, 0, ...]
-            Gi0 = G_seq[0, 0, ...]
+            
+            # Get batch size
+            batch_size = F_seq.size(0)
+            
+            # For batch_size=1, use non-batched path (squeeze to 3D) to match original
+            if batch_size == 1:
+                Fi0 = F_seq[0, 0, ...]  # Shape: (Q, Y, X) - matches original
+                Gi0 = G_seq[0, 0, ...]  # Shape: (Q, Y, X)
+            else:
+                Fi0 = F_seq[:, 0, ...]  # Shape: (B, Q, Y, X)
+                Gi0 = G_seq[:, 0, ...]  # Shape: (B, Q, Y, X)
 
             # Initialize TVD tracking variables for this batch
             if self.tvd_enabled:
@@ -256,29 +265,38 @@ class Stage2Trainer(BaseTrainer):
                 rho, ux, uy, E = self.solver.get_macroscopic(Fi0, Gi0)
                 T = self.solver.get_temp_from_energy(ux, uy, E)
 
-                # Get equilibrium F
-                Feq = self.solver.get_Feq(rho, ux, uy, T)
-
-                # Prepare model input
-                inputs = torch.stack(
-                    [
-                        rho.unsqueeze(0),
-                        ux.unsqueeze(0),
-                        uy.unsqueeze(0),
-                        T.unsqueeze(0),
-                    ],
-                    dim=1,
-                ).to(self.device)
-
-                # Model prediction
-                Geq_pred = self.model(inputs, self.basis)
-
-                Geq_target = Geq_seq[0, rollout].to(self.device)
-
-                # Compute loss
-                inner_loss = l2_error(
-                    Geq_pred, Geq_target.permute(1, 2, 0).reshape(-1, 9)
-                )
+                # Prepare model input - handle both batched and non-batched cases
+                if batch_size == 1:
+                    # Non-batched path (matches original): (1, 4, Y, X)
+                    inputs = torch.stack(
+                        [rho.unsqueeze(0), ux.unsqueeze(0), uy.unsqueeze(0), T.unsqueeze(0)],
+                        dim=1
+                    ).to(self.device)
+                    
+                    # Geq_pred: (Y * X, 9)
+                    Geq_pred = self.model(inputs, self.basis)
+                    
+                    # Target: (Q, Y, X)
+                    Geq_target = Geq_seq[0, rollout].to(self.device)
+                    
+                    # Compute loss (matches original)
+                    inner_loss = l2_error(Geq_pred, Geq_target.permute(1, 2, 0).reshape(-1, 9))
+                else:
+                    # Batched path: (B, 4, Y, X)
+                    inputs = torch.stack([rho, ux, uy, T], dim=1).to(self.device)
+                    
+                    # Geq_pred: (B * Y * X, 9)
+                    Geq_pred = self.model(inputs, self.basis)
+                    
+                    # Target: (B, Q, Y, X)
+                    Geq_target = Geq_seq[:, rollout].to(self.device)
+                    
+                    # Reshape target to (B * Y * X, 9) to match Geq_pred
+                    target_flattened = Geq_target.permute(0, 2, 3, 1).reshape(-1, 9)
+                    
+                    # Compute loss
+                    inner_loss = l2_error(Geq_pred, target_flattened)
+                
                 total_loss += inner_loss
 
                 # TVD loss (if enabled and not first rollout)
@@ -298,10 +316,20 @@ class Stage2Trainer(BaseTrainer):
                     T_old = T.clone()
                     rho_old = rho.clone()
 
-                # Collision
-                Geq_pred_reshaped = Geq_pred.permute(1, 0).reshape(
-                    self.solver.Qn, self.solver.Y, self.solver.X
-                )
+                # Collision - compute Feq first (matches original order)
+                Feq = self.solver.get_Feq(rho, ux, uy, T)
+                
+                if batch_size == 1:
+                    # Non-batched: reshape to (Q, Y, X)
+                    Geq_pred_reshaped = Geq_pred.permute(1, 0).reshape(
+                        self.solver.Qn, self.solver.Y, self.solver.X
+                    )
+                else:
+                    # Batched: reshape to (B, Q, Y, X)
+                    Geq_pred_reshaped = Geq_pred.permute(1, 0).reshape(
+                        self.solver.Qn, -1, self.solver.Y, self.solver.X
+                    ).permute(1, 0, 2, 3)
+                
                 Fi0, Gi0 = self.solver.collision(
                     Fi0, Gi0, Feq, Geq_pred_reshaped, rho, ux, uy, T
                 )
@@ -327,6 +355,8 @@ class Stage2Trainer(BaseTrainer):
                     Gi0 = Gi.clone()
 
             # Backward pass
+            # NOTE: Original uses retain_graph=True but that's incompatible with torch.compile
+            # and shouldn't be necessary since we don't do multiple backward passes
             total_loss.backward()
             self.adaptive_clipper.step(self, self.model)
 
@@ -392,7 +422,7 @@ class Stage2Trainer(BaseTrainer):
         # Validation (always enabled)
         val_loss = self._validate()
         self.log.info(
-            f"Epoch: {epoch}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
+            f"Epoch: {epoch+1}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
         )
 
         # Run validation rollout once per epoch for field-error metrics (and image cache)
@@ -415,6 +445,11 @@ class Stage2Trainer(BaseTrainer):
         """
         Run validation loop.
 
+        NOTE: The original NeurDE Stage 2 training does NOT have validation.
+        It uses training loss for model selection. This validation computes
+        a simple equilibrium prediction loss on validation data (no rollout)
+        to provide some validation signal without the complexity of rollout.
+
         Returns
         -------
         float
@@ -422,22 +457,20 @@ class Stage2Trainer(BaseTrainer):
         """
         self.model.eval()
         val_loss = 0.0
+        num_samples = 0
 
         with torch.no_grad():
-            # Get initial state from validation dataset
-            val_iter = iter(self.val_dataset)
-            Fi0 = next(val_iter)[0].to(self.device)
-            Gi0 = next(val_iter)[1].to(self.device)
-
             for F_val, G_val, Feq_val, Geq_val in self.val_dataset:
-                # Get macroscopic variables
-                rho, ux, uy, E = self.solver.get_macroscopic(Fi0, Gi0)
+                # Move to device
+                F_val = F_val.to(self.device)
+                G_val = G_val.to(self.device)
+                Geq_val = Geq_val.to(self.device)
+
+                # Get macroscopic variables from the distribution functions
+                rho, ux, uy, E = self.solver.get_macroscopic(F_val, G_val)
                 T = self.solver.get_temp_from_energy(ux, uy, E)
 
-                # Get equilibrium F
-                Feq = self.solver.get_Feq(rho, ux, uy, T)
-
-                # Prepare model input
+                # Prepare model input (same as training)
                 inputs = torch.stack(
                     [
                         rho.unsqueeze(0),
@@ -450,34 +483,16 @@ class Stage2Trainer(BaseTrainer):
 
                 # Model prediction
                 Geq_pred = self.model(inputs, self.basis)
-                Geq_target = Geq_val.to(self.device)
+                Geq_target = Geq_val
 
-                # Compute loss
+                # Compute loss (same as training)
                 inner_loss = l2_error(
                     Geq_pred, Geq_target.permute(1, 2, 0).reshape(-1, 9)
                 )
                 val_loss += inner_loss.item()
+                num_samples += 1
 
-                # Collision
-                Geq_pred_reshaped = Geq_pred.permute(1, 0).reshape(
-                    self.solver.Qn, self.solver.Y, self.solver.X
-                )
-                Fi0, Gi0 = self.solver.collision(
-                    Fi0, Gi0, Feq, Geq_pred_reshaped, rho, ux, uy, T
-                )
-
-                # Streaming
-                Fi, Gi = self.solver.streaming(Fi0, Gi0)
-
-                # Detach after streaming (SOD case)
-                if self.detach_after_streaming:
-                    Fi0 = Fi.detach()
-                    Gi0 = Gi.detach()
-                else:
-                    Fi0 = Fi.clone()
-                    Gi0 = Gi.clone()
-
-        return val_loss / len(self.val_dataset)
+        return val_loss / num_samples if num_samples > 0 else 0.0
 
     def build_epoch_log_metrics(
         self, epoch: int, primary_loss: float

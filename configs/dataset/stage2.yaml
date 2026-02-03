@@ -1,7 +1,10 @@
 # @package dataset
 # Stage 2 dataset configuration
 
-batch_size: 1  # Batch size 1 for rollout sequences
+# NOTE: batch_size MUST be 1 for Stage 2 training.
+# The rollout loop requires non-batched (3D) tensors to match the original implementation.
+# Batched rollout (batch_size > 1) is not yet fully supported due to numerical issues.
+batch_size: 1
 shuffle: false
 num_workers: 4
 pin_memory: true

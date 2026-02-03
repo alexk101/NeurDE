@@ -2,12 +2,19 @@
 # Stage 2 training configuration
 
 defaults:
-  - /scheduler: onecyclelr
-  
+  # Use constant LR scheduler - the original's OneCycleLR with per-epoch stepping
+  # effectively resulted in constant LR due to a bug in their implementation.
+  - /scheduler: constant
+
 epochs: 1000
-lr: 1.0e-4
+lr: 1.0e-5
 model_dir: results/stage2
 N: 20  # Number of rollout steps
+
+# NOTE: batch_size MUST be 1 for Stage 2 training.
+# The rollout loop requires non-batched (3D) tensors to match the original implementation.
+# Batched rollout (batch_size > 1) is not yet fully supported due to numerical issues.
+batch_size: 1
 
 # Optional features
 tvd:
@@ -29,7 +36,7 @@ adaptive_clip:
   enabled: true
   alpha: 0.97      # EMA decay factor for gradient norm statistics
   z_thresh: 2.5   # Z-score threshold for triggering adaptive clipping
-  warmup_steps: 1000 # Number of steps to collect gradient norms before EMA initialization
+  warmup_steps: 200 # Number of steps to collect gradient norms before EMA initialization
   mode: "zscore"  # Clipping mode: "zscore" or "percentile"
   clip_option: "adaptive_scaling"  # For zscore mode: "adaptive_scaling" or "mean"
   clip_factor: 1.0  # Multiplier for adaptive scaling threshold

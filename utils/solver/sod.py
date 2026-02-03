@@ -89,25 +89,37 @@ class SODSolver(BaseLBSolver):
         Parameters
         ----------
         F_pos_coll : torch.Tensor
-            Post-collision F distribution (Q, Y, X)
+            Post-collision F distribution (Q, Y, X) or batched (B, Q, Y, X)
         G_pos_coll : torch.Tensor
-            Post-collision G distribution (Q, Y, X)
+            Post-collision G distribution (Q, Y, X) or batched (B, Q, Y, X)
 
         Returns
         -------
         tuple
-            (Fi, Gi) streamed distributions with BC applied (Q, Y, X)
+            (Fi, Gi) streamed distributions with BC applied (Q, Y, X) or (B, Q, Y, X)
         """
+        # Check if input is batched
+        is_batched = F_pos_coll.dim() == 4
+        
         # Apply interpolation and shift (from base class)
         Fo1, Go1 = self.interpolate_domain(F_pos_coll, G_pos_coll)
         Fi, Gi = self.shift_operator(Fo1, Go1)
 
         # Apply boundary conditions inline
         coly = torch.arange(1, self.Y + 1, device=self.device) - 1
-        Gi[:, coly, 0] = Gi[:, coly, 1]
-        Gi[:, coly, self.X - 1] = Gi[:, coly, self.X - 2]
-        Fi[:, coly, 0] = Fi[:, coly, 1]
-        Fi[:, coly, self.X - 1] = Fi[:, coly, self.X - 2]
+        
+        if is_batched:
+            # Batched case: (B, Q, Y, X)
+            Gi[:, :, coly, 0] = Gi[:, :, coly, 1]
+            Gi[:, :, coly, self.X - 1] = Gi[:, :, coly, self.X - 2]
+            Fi[:, :, coly, 0] = Fi[:, :, coly, 1]
+            Fi[:, :, coly, self.X - 1] = Fi[:, :, coly, self.X - 2]
+        else:
+            # Single case: (Q, Y, X)
+            Gi[:, coly, 0] = Gi[:, coly, 1]
+            Gi[:, coly, self.X - 1] = Gi[:, coly, self.X - 2]
+            Fi[:, coly, 0] = Fi[:, coly, 1]
+            Fi[:, coly, self.X - 1] = Fi[:, coly, self.X - 2]
 
         del Fo1, Go1
         return Fi, Gi

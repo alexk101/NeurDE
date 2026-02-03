@@ -1,0 +1,8 @@
+# @package scheduler
+# Constant learning rate scheduler (no change in LR during training)
+# This is effectively what the original Stage 2 training uses due to a bug
+# in their scheduler stepping logic.
+
+scheduler_type: ConstantLR
+factor: 1.0  # Multiply base LR by this factor (1.0 = no change)
+total_iters: 0  # Number of steps to apply the factor (0 = entire training)

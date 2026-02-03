@@ -304,45 +304,74 @@ class CylinderSolver(BaseLBSolver):
         Parameters
         ----------
         Fi : torch.Tensor
-            F distribution after streaming (Q, Y, X)
+            F distribution after streaming (Q, Y, X) or batched (B, Q, Y, X)
         Gi : torch.Tensor
-            G distribution after streaming (Q, Y, X)
+            G distribution after streaming (Q, Y, X) or batched (B, Q, Y, X)
         Fi_obs_cyl : torch.Tensor
-            F distribution for obstacle (Q, Y, X)
+            F distribution for obstacle (Q, num_obs)
         Gi_obs_cyl : torch.Tensor
-            G distribution for obstacle (Q, Y, X)
+            G distribution for obstacle (Q, num_obs)
         Fi_obs_Inlet : torch.Tensor
-            F distribution for inlet (Q, Y, X)
+            F distribution for inlet (Q, Y)
         Gi_obs_Inlet : torch.Tensor
-            G distribution for inlet (Q, Y, X)
+            G distribution for inlet (Q, Y)
 
         Returns
         -------
         tuple
-            (Fi_obs, Gi_obs) with obstacle and BC applied (Q, Y, X)
+            (Fi_obs, Gi_obs) with obstacle and BC applied (Q, Y, X) or (B, Q, Y, X)
         """
+        # Check if input is batched
+        is_batched = Fi.dim() == 4
+        
         Fi_obs = Fi.clone()
         Gi_obs = Gi.clone()
 
-        # Obstacle
-        Fi_obs[:, self.Obs] = Fi_obs_cyl
-        Gi_obs[:, self.Obs] = Gi_obs_cyl
+        if is_batched:
+            # Batched case: Fi is (B, Q, Y, X)
+            B = Fi.size(0)
+            
+            # Obstacle: broadcast the cached obstacle values across batch
+            # Fi_obs_cyl is (Q, num_obs), need to apply to all batches
+            Fi_obs[:, :, self.Obs] = Fi_obs_cyl.unsqueeze(0).expand(B, -1, -1)
+            Gi_obs[:, :, self.Obs] = Gi_obs_cyl.unsqueeze(0).expand(B, -1, -1)
 
-        # Inlet
-        Fi_obs[:, self.coly, 0] = Fi_obs_Inlet
-        Gi_obs[:, self.coly, 0] = Gi_obs_Inlet
+            # Inlet: Fi_obs_Inlet is (Q, Y), need to apply to all batches
+            Fi_obs[:, :, self.coly, 0] = Fi_obs_Inlet.unsqueeze(0).expand(B, -1, -1)
+            Gi_obs[:, :, self.coly, 0] = Gi_obs_Inlet.unsqueeze(0).expand(B, -1, -1)
 
-        # Outlet (extrapolation)
-        Fi_obs[:, self.coly, self.X - 1] = Fi_obs[:, self.coly, self.X - 2]
-        Gi_obs[:, self.coly, self.X - 1] = Gi_obs[:, self.coly, self.X - 2]
+            # Outlet (extrapolation)
+            Fi_obs[:, :, self.coly, self.X - 1] = Fi_obs[:, :, self.coly, self.X - 2]
+            Gi_obs[:, :, self.coly, self.X - 1] = Gi_obs[:, :, self.coly, self.X - 2]
 
-        # Upper wall (extrapolation)
-        Fi_obs[:, 0, self.colx] = Fi_obs[:, 1, self.colx]
-        Gi_obs[:, 0, self.colx] = Gi_obs[:, 1, self.colx]
+            # Upper wall (extrapolation)
+            Fi_obs[:, :, 0, self.colx] = Fi_obs[:, :, 1, self.colx]
+            Gi_obs[:, :, 0, self.colx] = Gi_obs[:, :, 1, self.colx]
 
-        # Lower wall (extrapolation)
-        Fi_obs[:, self.Y - 1, self.colx] = Fi_obs[:, self.Y - 2, self.colx]
-        Gi_obs[:, self.Y - 1, self.colx] = Gi_obs[:, self.Y - 2, self.colx]
+            # Lower wall (extrapolation)
+            Fi_obs[:, :, self.Y - 1, self.colx] = Fi_obs[:, :, self.Y - 2, self.colx]
+            Gi_obs[:, :, self.Y - 1, self.colx] = Gi_obs[:, :, self.Y - 2, self.colx]
+        else:
+            # Single case: original implementation
+            # Obstacle
+            Fi_obs[:, self.Obs] = Fi_obs_cyl
+            Gi_obs[:, self.Obs] = Gi_obs_cyl
+
+            # Inlet
+            Fi_obs[:, self.coly, 0] = Fi_obs_Inlet
+            Gi_obs[:, self.coly, 0] = Gi_obs_Inlet
+
+            # Outlet (extrapolation)
+            Fi_obs[:, self.coly, self.X - 1] = Fi_obs[:, self.coly, self.X - 2]
+            Gi_obs[:, self.coly, self.X - 1] = Gi_obs[:, self.coly, self.X - 2]
+
+            # Upper wall (extrapolation)
+            Fi_obs[:, 0, self.colx] = Fi_obs[:, 1, self.colx]
+            Gi_obs[:, 0, self.colx] = Gi_obs[:, 1, self.colx]
+
+            # Lower wall (extrapolation)
+            Fi_obs[:, self.Y - 1, self.colx] = Fi_obs[:, self.Y - 2, self.colx]
+            Gi_obs[:, self.Y - 1, self.colx] = Gi_obs[:, self.Y - 2, self.colx]
 
         return Fi_obs, Gi_obs
 

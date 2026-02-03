@@ -98,8 +98,10 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=N
         Type of scheduler to create. Options:
         - "OneCycleLR": One cycle learning rate policy
         - "CosineAnnealingLR": Cosine annealing (no restarts)
+        - "CosineAnnealingWarmRestarts": Cosine annealing with warm restarts
         - "ReduceLROnPlateau": Reduce LR on plateau
         - "StepLR": Step learning rate decay
+        - "ConstantLR": Constant learning rate (no change)
     total_steps : int
         Total number of training steps (used by OneCycleLR)
     config : dict
@@ -124,6 +126,10 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=N
         For "StepLR":
             - step_size (int, default: 30): Period of learning rate decay
             - gamma (float, default: 0.1): Multiplicative factor for LR decay
+
+        For "ConstantLR":
+            - factor (float, default: 1.0): Factor to multiply base LR by
+            - total_iters (int, default: 0): Number of steps to apply factor (0 = entire training)
 
     total_epochs : int, optional
         Total number of training epochs. Required for CosineAnnealingLR (used as T_max).
@@ -174,6 +180,16 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=N
             optimizer,
             step_size=config.get("step_size", 30),
             gamma=config.get("gamma", 0.1),
+        )
+    elif scheduler_type == "ConstantLR":
+        # Constant learning rate - effectively no scheduling
+        # This matches the effective behavior of the original Stage 2 training
+        # where OneCycleLR was stepped per-epoch but configured for per-batch,
+        # resulting in near-constant LR throughout training.
+        return torch.optim.lr_scheduler.ConstantLR(
+            optimizer,
+            factor=config.get("factor", 1.0),
+            total_iters=config.get("total_iters", 0),
         )
     else:
         raise ValueError(f"Scheduler type '{scheduler_type}' not supported.")

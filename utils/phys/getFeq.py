@@ -48,17 +48,32 @@ class F_pop_torch(nn.Module):
         }
 
     @staticmethod
-    def _compute_feq_core(rho, Phi, shape, device, Q=9):
-        Feq = torch.zeros((Q, *shape), device=device)
-        Feq[0] = rho * Phi["px"] * Phi["0y"]
-        Feq[1] = rho * Phi["0x"] * Phi["py"]
-        Feq[2] = rho * Phi["mx"] * Phi["0y"]
-        Feq[3] = rho * Phi["0x"] * Phi["my"]
-        Feq[4] = rho * Phi["px"] * Phi["py"]
-        Feq[5] = rho * Phi["mx"] * Phi["py"]
-        Feq[6] = rho * Phi["mx"] * Phi["my"]
-        Feq[7] = rho * Phi["px"] * Phi["my"]
-        Feq[8] = rho * Phi["0x"] * Phi["0y"]
+    def _compute_feq_core(rho, Phi, shape, device, Q=9, is_batched=False):
+        if is_batched:
+            # Batched case: shape is (B, Y, X), output should be (B, Q, Y, X)
+            B = shape[0]
+            Feq = torch.zeros((B, Q, shape[1], shape[2]), device=device)
+            Feq[:, 0] = rho * Phi["px"] * Phi["0y"]
+            Feq[:, 1] = rho * Phi["0x"] * Phi["py"]
+            Feq[:, 2] = rho * Phi["mx"] * Phi["0y"]
+            Feq[:, 3] = rho * Phi["0x"] * Phi["my"]
+            Feq[:, 4] = rho * Phi["px"] * Phi["py"]
+            Feq[:, 5] = rho * Phi["mx"] * Phi["py"]
+            Feq[:, 6] = rho * Phi["mx"] * Phi["my"]
+            Feq[:, 7] = rho * Phi["px"] * Phi["my"]
+            Feq[:, 8] = rho * Phi["0x"] * Phi["0y"]
+        else:
+            # Single case: shape is (Y, X), output should be (Q, Y, X)
+            Feq = torch.zeros((Q, *shape), device=device)
+            Feq[0] = rho * Phi["px"] * Phi["0y"]
+            Feq[1] = rho * Phi["0x"] * Phi["py"]
+            Feq[2] = rho * Phi["mx"] * Phi["0y"]
+            Feq[3] = rho * Phi["0x"] * Phi["my"]
+            Feq[4] = rho * Phi["px"] * Phi["py"]
+            Feq[5] = rho * Phi["mx"] * Phi["py"]
+            Feq[6] = rho * Phi["mx"] * Phi["my"]
+            Feq[7] = rho * Phi["px"] * Phi["my"]
+            Feq[8] = rho * Phi["0x"] * Phi["0y"]
         return Feq
 
     @staticmethod
@@ -68,7 +83,9 @@ class F_pop_torch(nn.Module):
         Phi = F_pop_torch._compute_phi(
             ux_diff, uy_diff, T
         )  # Call static method with class name
-        return F_pop_torch._compute_feq_core(rho, Phi, T.shape, T.device, Q)
+        # Check if input is batched (3D: B, Y, X) or single (2D: Y, X)
+        is_batched = T.dim() == 3
+        return F_pop_torch._compute_feq_core(rho, Phi, T.shape, T.device, Q, is_batched)
 
     @staticmethod
     def compute_Feq_obstacle(rho, ux, Uax, uy, Uay, T, obstacle, Q=9):
