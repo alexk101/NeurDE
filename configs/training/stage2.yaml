@@ -1,6 +1,9 @@
 # @package training
 # Stage 2 training configuration
 
+defaults:
+  - /scheduler: onecyclelr
+  
 epochs: 1000
 lr: 1.0e-4
 model_dir: results/stage2

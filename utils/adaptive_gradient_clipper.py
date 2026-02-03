@@ -274,8 +274,12 @@ class AdaptiveGradientClipper:
 
         # If norm is non-finite on this rank, zero gradients and skip stats/clip
         if not math.isfinite(total_norm_float):
+            if torch.distributed.is_initialized():
+                message = f"Non-finite gradient norm detected on rank {trainer.world_rank}: {total_norm}. "
+            else:
+                message = f"Non-finite gradient norm detected: {total_norm}. "
             trainer.log.warning(
-                f"Non-finite gradient norm detected on rank {trainer.world_rank}: {total_norm}. "
+                message +
                 f"Zeroing grads and skipping clip/EMA update."
             )
             for param in model.parameters():
@@ -283,8 +287,8 @@ class AdaptiveGradientClipper:
                     param.grad.detach().zero_()
             return total_norm
 
-        # During warmup, collect gradient norms without applying clipping
-        # BUT: Filter out non-finite values to prevent corrupting initialization
+        # During warmup, collect gradient norms for EMA initialization.
+        # Apply max_grad_norm clipping during warmup if set (so gradients are always bounded).
         if not self.initialized:
             # Only add finite norms to buffer
             if math.isfinite(total_norm_float) and total_norm_float > 0:
@@ -300,11 +304,19 @@ class AdaptiveGradientClipper:
                     f"Adaptive clipper initialized after {self.warmup_steps} steps. "
                     f"Initial mean={float(self.mean):.4f}, var={float(self.var):.4f}"
                 )
-            # Even if we filtered the norm, return it for consistency
-            return total_norm
 
-        # If we're still in warmup, don't apply clipping
-        if not self.initialized:
+            # During warmup, still apply max_grad_norm if set (clip norm so training is stable)
+            if self.max_grad_norm is not None and total_norm_float > self.max_grad_norm:
+                clip_coef = self.max_grad_norm / (total_norm_float + self.eps)
+                clip_coef = float(clip_coef)
+                for param in model.parameters():
+                    if param.grad is not None:
+                        param.grad.data.mul_(clip_coef)
+                self.clips_per_log_interval += 1
+                trainer.log.info(
+                    f"Max norm clipping (warmup): norm={float(total_norm):.4f}, threshold={self.max_grad_norm}"
+                )
+
             return total_norm
 
         # Apply max_grad_norm clipping if specified (fallback behavior)

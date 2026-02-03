@@ -5,6 +5,7 @@ This module provides the Stage1Trainer class for training the model on
 equilibrium state data (predicting Geq from macroscopic variables).
 """
 
+import math
 import os
 from omegaconf import DictConfig
 import torch
@@ -237,8 +238,15 @@ class Stage1Trainer(BaseTrainer):
             if self.scheduler is not None and type(self.scheduler).__name__ != "ReduceLROnPlateau":
                 self.scheduler.step()
 
-            loss_epoch += loss.item()
-            num_batches += 1
+            loss_val = loss.item()
+            if math.isfinite(loss_val):
+                loss_epoch += loss_val
+                num_batches += 1
+            else:
+                self.log.warning(
+                    f"Epoch {epoch + 1} Batch {batch_idx + 1}: non-finite loss {loss_val}, "
+                    "excluding from epoch average"
+                )
 
             # Global step for experiment tracking
             self.global_step += 1

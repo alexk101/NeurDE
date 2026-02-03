@@ -13,7 +13,7 @@ tracker:
   # Image logging (Stage 2 only: validation rollout comparison plots)
   log_images: true
   image_log_interval: 1   # log one image every N epochs
-  image_log_max_count: 20  # cap total images per run (0 = no cap)
+  image_log_max_count: 0  # cap total images per run (0 = no cap)
 
   # WandB-specific
   project: "NeurDE"

@@ -10,7 +10,7 @@ tracker:
   # Image logging (Stage 2 only: validation rollout comparison plots)
   log_images: true
   image_log_interval: 1
-  image_log_max_count: 20
+  image_log_max_count: 0
 
   # Mlflow server address
   tracking_uri: "https://192.168.50.34" 
