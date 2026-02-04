@@ -193,9 +193,9 @@ def main(cfg: DictConfig) -> None:
     total_steps = len(train_dataloader) * cfg.training.epochs
     scheduler = get_scheduler(
         optimizer=optimizer,
-        scheduler_type=cfg.scheduler.scheduler_type,
+        scheduler_type=cfg.training.scheduler.scheduler_type,
         total_steps=total_steps,
-        config=OmegaConf.to_container(cfg.scheduler, resolve=True),
+        config=OmegaConf.to_container(cfg.training.scheduler, resolve=True),
         total_epochs=cfg.training.epochs,
     )
 

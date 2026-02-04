@@ -22,3 +22,7 @@ compile: true
 
 # Output directory
 output_dir: images  # Base directory for output images
+
+# Plotting backend for saved figures (matplotlib | plotly)
+logging:
+  plotting_backend: "matplotlib"

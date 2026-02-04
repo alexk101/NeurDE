@@ -69,9 +69,9 @@ NeurDE/
 │   ├── case/               # Case-specific configs (cylinder, cylinder_faster, sod_shock_tube)
 │   ├── model/              # Model architecture configs
 │   ├── optimizer/          # Optimizer configs
-│   ├── scheduler/          # Learning rate scheduler configs
 │   ├── dataset/            # Dataset configs (stage1, stage2)
-│   ├── training/          # Training configs (stage1, stage2)
+│   ├── training/           # Training configs (stage1, stage2)
+│   ├── scheduler/          # Learning rate scheduler configs
 │   ├── logging/            # Experiment tracking (wandb, mlflow)
 │   └── config.yaml        # Main configuration file
 ├── model/                  # Unified model architecture
@@ -117,13 +117,16 @@ NeurDE/
 
 The code uses Hydra for configuration management, allowing easy parameter selection and overrides via command-line arguments.
 
+**Overriding config groups:** Use `group=choice` (e.g. `case=cylinder_faster`, `optimizer=muon`, `logging=wandb`, `training=stage2`). Scheduler configs live in `configs/scheduler/`; override with `scheduler@training.scheduler=<name>` (e.g. `scheduler@training.scheduler=cos_anneal`). Tweak params with `training.scheduler.*` (e.g. `training.scheduler.eta_min=1e-5`).
+
 ### Configuration Overview
 
 All parameters are configured through Hydra configs in the `configs/` directory:
 - **Case configs** (`configs/case/`): Physics parameters and solver settings
 - **Model configs** (`configs/model/`): Architecture parameters
 - **Training configs** (`configs/training/`): Training hyperparameters
-- **Optimizer/Scheduler configs**: Optimization settings
+- **Optimizer configs** (`configs/optimizer/`): Optimizer settings
+- **Scheduler configs** (`configs/scheduler/`): Learning rate schedulers; override with `scheduler@training.scheduler=<name>`
 - **Logging configs** (`configs/logging/`): Experiment tracking (WandB or MLflow) and terminal log intervals
 
 ### Data Generation
@@ -183,8 +186,9 @@ python train_stage1.py case=cylinder device=0 num_samples=1000 batch_size=64
 # Override model architecture
 python train_stage1.py case=cylinder model.hidden_dim=64 model.num_layers=5
 
-# Override optimizer and scheduler
-python train_stage1.py case=cylinder optimizer=adamw scheduler=onecyclelr
+# Override scheduler (scheduler configs are in configs/scheduler/)
+python train_stage1.py case=cylinder scheduler@training.scheduler=cos_anneal
+python train_stage1.py case=cylinder scheduler@training.scheduler=cos_anneal training.scheduler.eta_min=1e-5
 ```
 
 ### Stage 2 Training
@@ -236,9 +240,7 @@ python train_stage1.py \
     batch_size=32 \
     model.hidden_dim=64 \
     model.num_layers=4 \
-    optimizer.optimizer_type=AdamW \
-    optimizer.lr=1e-3 \
-    scheduler.scheduler_type=CosineAnnealingWarmRestarts \
+    optimizer=adamw \
     compile=true
 ```
 
@@ -280,6 +282,9 @@ python train_stage2.py \
 - `model.activation`: Activation function (`relu` or `tanh`)
 
 **Training:**
+- `training`: One of `stage1` (default for Stage 1) or `stage2`.
+- `scheduler@training.scheduler`: Which scheduler config to use (e.g. `cos_anneal`, `cos_anneal_wr`, `constant`, `onecyclelr`). Configs live in `configs/scheduler/`.
+- `training.scheduler.*`: Override individual scheduler params (e.g. `training.scheduler.eta_min`).
 - `training.epochs`: Number of training epochs
 - `training.lr`: Learning rate
 - `training.N`: Number of rollout steps (Stage 2 only)

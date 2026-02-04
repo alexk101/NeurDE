@@ -1,4 +1,4 @@
-# @package scheduler
+# @package training.scheduler
 # CosineAnnealingLR scheduler configuration (stepped per batch)
 
 scheduler_type: CosineAnnealingLR

@@ -1,4 +1,4 @@
-# @package scheduler
+# @package training.scheduler
 # OneCycleLR scheduler configuration
 
 scheduler_type: OneCycleLR

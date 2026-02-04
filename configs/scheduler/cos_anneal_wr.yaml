@@ -1,4 +1,4 @@
-# @package scheduler
+# @package training.scheduler
 # CosineAnnealingWarmRestarts: cosine decay with warm restarts (stepped per batch).
 # To end training at a LR minimum (not at a restart peak), set num_cycles so that
 # total_steps lands at the end of the last cycle. T_0 is then computed from total_steps.

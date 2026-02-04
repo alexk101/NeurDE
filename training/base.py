@@ -17,9 +17,10 @@ from typing import Optional, Dict, Any
 from omegaconf import DictConfig
 from dotenv import load_dotenv
 
+from utils.plotting import set_plotting_backend
 from utils.adaptive_gradient_clipper import AdaptiveGradientClipper
 from utils.core import adapt_checkpoint_keys
-from utils.experiment_tracking import create_experiment_tracker, ExperimentTracker
+from utils.experiment_tracking import create_tracker, ExperimentTracker
 import urllib3
 
 # SILENCE SSL WARNINGS
@@ -132,6 +133,10 @@ class BaseTrainer(ABC):
         """
         load_dotenv(override=False)
 
+        # Set plotting backend from config (e.g. matplotlib, plotly)
+        plotting_backend = cfg.get("logging.plotting_backend", "matplotlib")
+        set_plotting_backend(plotting_backend)
+
         self.model = model
         self.device = device
         self.optimizer = optimizer
@@ -204,7 +209,7 @@ class BaseTrainer(ABC):
                 mlflow_run_id = ckpt["metadata"].get("mlflow_run_id")
 
         # Experiment tracker backend (may be a no-op tracker); pass run_id when resuming
-        self.tracker: ExperimentTracker = create_experiment_tracker(
+        self.tracker: ExperimentTracker = create_tracker(
             cfg, self.log, run_id=mlflow_run_id
         )
 
@@ -214,26 +219,11 @@ class BaseTrainer(ABC):
         # Cursor file: (epoch, last_logged_batch_index). When resuming, we replay that epoch
         # from batch 0 up to last_logged_batch_index without logging, then log from the next batch.
         self._cursor_path = os.path.join(self.model_dir, "training_cursor.json")
-        self._log_from_batch_index: int = 0  # first batch index from which we log (0 = log from start)
+        self._log_from_batch_index: int = (
+            0  # first batch index from which we log (0 = log from start)
+        )
 
-        # Resume from checkpoint if provided
-        self.start_epoch = 0
-        if resume_from is not None:
-            if preloaded_checkpoint is not None:
-                self.start_epoch = self.resume_from_checkpoint(
-                    checkpoint=preloaded_checkpoint
-                )
-            else:
-                self.start_epoch = self.resume_from_checkpoint(checkpoint_path=resume_from)
-            # If cursor exists for the epoch we're about to run, don't log until we pass that batch
-            self._log_from_batch_index = self._read_cursor_log_from(self.start_epoch)
-            if self._log_from_batch_index > 0:
-                self.log.info(
-                    f"Resuming mid-epoch: will run epoch {self.start_epoch + 1} from batch 0, "
-                    f"logging from batch {self._log_from_batch_index} onward (cursor file)"
-                )
-
-        # Initialize adaptive gradient clipper
+        # Initialize adaptive gradient clipper before resume so we can restore its state from checkpoint
         adaptive_clip_config = getattr(cfg.training, "adaptive_clip", {})
         self.adaptive_clipper = AdaptiveGradientClipper(adaptive_clip_config)
         self.log.info(
@@ -243,6 +233,25 @@ class BaseTrainer(ABC):
             f"mode={self.adaptive_clipper.mode}, "
             f"warmup_steps={self.adaptive_clipper.warmup_steps}"
         )
+
+        # Resume from checkpoint if provided
+        self.start_epoch = 0
+        if resume_from is not None:
+            if preloaded_checkpoint is not None:
+                self.start_epoch = self.resume_from_checkpoint(
+                    checkpoint=preloaded_checkpoint
+                )
+            else:
+                self.start_epoch = self.resume_from_checkpoint(
+                    checkpoint_path=resume_from
+                )
+            # If cursor exists for the epoch we're about to run, don't log until we pass that batch
+            self._log_from_batch_index = self._read_cursor_log_from(self.start_epoch)
+            if self._log_from_batch_index > 0:
+                self.log.info(
+                    f"Resuming mid-epoch: will run epoch {self.start_epoch + 1} from batch 0, "
+                    f"logging from batch {self._log_from_batch_index} onward (cursor file)"
+                )
 
     def setup_logging(self):
         """
@@ -401,17 +410,19 @@ class BaseTrainer(ABC):
                 self.adaptive_clipper.load_state_dict(
                     checkpoint["adaptive_clipper_state_dict"], strict=False
                 )
-                self.log.info("Restored adaptive gradient clipper state from checkpoint.")
+                self.log.info(
+                    "Restored adaptive gradient clipper state from checkpoint."
+                )
             except (KeyError, ValueError) as e:
                 self.log.info(
                     f"Warning: Could not load adaptive clipper state: {e}. "
                     "Clipper will reinitialize (warmup)."
                 )
 
+        self.log.info(f"Resumed from checkpoint: {checkpoint_path or '(preloaded)'}")
         self.log.info(
-            f"Resumed from checkpoint: {checkpoint_path or '(preloaded)'}"
+            f"Resuming from epoch {start_epoch + 1}, global_step={self.global_step}"
         )
-        self.log.info(f"Resuming from epoch {start_epoch + 1}, global_step={self.global_step}")
         if self.loss_history:
             self.log.info(f"Previous loss history: {len(self.loss_history)} epochs")
         return start_epoch + 1

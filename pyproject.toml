@@ -32,6 +32,9 @@ amd = [
 nvidia = [
     "nvidia-ml-py>=13.590.48",
 ]
+plotly = [
+    "plotly>=6.5.2",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu130"

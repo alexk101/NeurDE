@@ -3,6 +3,9 @@ backend: "mlflow"
 log_to_screen: true
 terminal_batch_log_interval: 50
 
+# Plotting backend for validation images (matplotlib | plotly)
+plotting_backend: "matplotlib"
+
 tracker:
   enabled: true
   batch_log_interval: 10
@@ -11,6 +14,9 @@ tracker:
   log_images: true
   image_log_interval: 1
   image_log_max_count: 0
+
+  # Plot format: false = static PNG, true = interactive HTML (plotly only)
+  interactive_plots: false
 
   # Mlflow server address
   tracking_uri: "https://192.168.50.34" 

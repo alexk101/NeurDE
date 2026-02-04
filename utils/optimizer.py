@@ -170,7 +170,7 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=N
             # Compute T_0 so that after num_cycles cycles we've done exactly total_steps.
             # Cycle lengths: T_0, T_0*T_mult, T_0*T_mult^2, ... => sum = T_0*(T_mult^num_cycles - 1)/(T_mult - 1)
             # Require sum = total_steps => T_0 = total_steps * (T_mult - 1) / (T_mult^num_cycles - 1)
-            mult_n = T_mult ** num_cycles
+            mult_n = T_mult**num_cycles
             denom = mult_n - 1
             if denom <= 0:
                 raise ValueError(

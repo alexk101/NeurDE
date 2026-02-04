@@ -1,4 +1,4 @@
-# @package scheduler
+# @package training.scheduler
 # Constant learning rate scheduler (no change in LR during training)
 # This is effectively what the original Stage 2 training uses due to a bug
 # in their scheduler stepping logic.

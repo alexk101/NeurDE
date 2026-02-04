@@ -2,8 +2,6 @@
 # Stage 2 training configuration
 
 defaults:
-  # Use constant LR scheduler - the original's OneCycleLR with per-epoch stepping
-  # effectively resulted in constant LR due to a bug in their implementation.
   - /scheduler: constant
 
 epochs: 1000

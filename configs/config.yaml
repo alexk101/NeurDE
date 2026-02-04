@@ -8,8 +8,6 @@ defaults:
   - model: neurde
   - training: stage1
   - optimizer: adamw
-  # NOTE: scheduler is specified in each training config (stage1.yaml, stage2.yaml)
-  # to allow different schedulers per stage
   - dataset: stage1
   - logging: mlflow
 

@@ -10,7 +10,7 @@ Example usage:
 """
 
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import torch
 import numpy as np
 import h5py
@@ -21,7 +21,7 @@ from training import create_basis
 from utils.solver import create_solver
 from utils.loss import l2_error
 from utils.core import set_seed, detach, adapt_checkpoint_keys
-from utils.plotting import plot_cylinder_results, plot_sod_results
+from utils.plotting import plot_cylinder_results, plot_sod_results, set_plotting_backend
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="eval")
@@ -36,6 +36,9 @@ def main(cfg: DictConfig) -> None:
     """
     # Set seed for reproducibility
     set_seed(0)
+
+    # Set plotting backend from config (e.g. matplotlib, plotly)
+    set_plotting_backend(OmegaConf.get(cfg, "logging.plotting_backend", "matplotlib"))
 
     # Setup device
     device = torch.device(

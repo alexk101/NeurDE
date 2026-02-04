@@ -21,7 +21,7 @@ from utils.datasets import Stage2Dataset
 from utils.loss import l2_error, TVD_norm
 from utils.case_specific import tvd_weight_scheduler
 from utils.core import detach
-from utils.plotting import plot_cylinder_results, plot_sod_results, fig_to_image
+from utils.plotting import plot_cylinder_results, plot_sod_results
 
 
 class Stage2Trainer(BaseTrainer):
@@ -763,9 +763,8 @@ class Stage2Trainer(BaseTrainer):
                 data["case_number"],
                 save=False,
             )
-        img = fig_to_image(fig)
-        self.tracker.log_image(
-            img,
+        self.tracker.log_figure(
+            fig,
             key="validation_plot",
             step=epoch + 1,
             step_metric="epoch",

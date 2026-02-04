@@ -22,6 +22,7 @@ def get_device():
     else:
         return torch.device("cpu")
 
+
 def set_seed(seed=0):
     """
     Set random seeds for reproducibility.

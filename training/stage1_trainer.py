@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 
 from .base import BaseTrainer
 from utils.loss import l2_error
-from utils.plotting import plot_stage1_validation, fig_to_image
+from utils.plotting import plot_stage1_validation
 
 
 class Stage1Trainer(BaseTrainer):
@@ -155,9 +155,8 @@ class Stage1Trainer(BaseTrainer):
             epoch_or_sample=epoch + 1,
             save=False,
         )
-        img = fig_to_image(fig)
-        self.tracker.log_image(
-            img,
+        self.tracker.log_figure(
+            fig,
             key="validation_plot",
             step=epoch + 1,
             step_metric="epoch",

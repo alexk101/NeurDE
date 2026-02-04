@@ -6,6 +6,9 @@ backend: "wandb"
 log_to_screen: true
 terminal_batch_log_interval: 50
 
+# Plotting backend for validation images (matplotlib | plotly)
+plotting_backend: "matplotlib"
+
 tracker:
   enabled: true
   batch_log_interval: 10
@@ -14,6 +17,9 @@ tracker:
   log_images: true
   image_log_interval: 1   # log one image every N epochs
   image_log_max_count: 0  # cap total images per run (0 = no cap)
+
+  # Plot format: false = static PNG, true = interactive (plotly only)
+  interactive_plots: false
 
   # WandB-specific
   project: "NeurDE"
