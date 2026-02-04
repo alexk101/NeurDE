@@ -125,7 +125,7 @@ All parameters are configured through Hydra configs in the `configs/` directory:
 - **Case configs** (`configs/case/`): Physics parameters and solver settings
 - **Model configs** (`configs/model/`): Architecture parameters
 - **Training configs** (`configs/training/`): Training hyperparameters
-- **Optimizer configs** (`configs/optimizer/`): Optimizer settings
+- **Optimizer configs** (`configs/optimizer/`): Optimizer-specific settings (weight_decay, eps, etc.). Note: `training.lr` takes precedence over `optimizer.lr` when both are set.
 - **Scheduler configs** (`configs/scheduler/`): Learning rate schedulers; override with `scheduler@training.scheduler=<name>`
 - **Logging configs** (`configs/logging/`): Experiment tracking (WandB or MLflow) and terminal log intervals
 
@@ -286,7 +286,7 @@ python train_stage2.py \
 - `scheduler@training.scheduler`: Which scheduler config to use (e.g. `cos_anneal`, `cos_anneal_wr`, `constant`, `onecyclelr`). Configs live in `configs/scheduler/`.
 - `training.scheduler.*`: Override individual scheduler params (e.g. `training.scheduler.eta_min`).
 - `training.epochs`: Number of training epochs
-- `training.lr`: Learning rate
+- `training.lr`: Learning rate (takes precedence over `optimizer.lr`)
 - `training.N`: Number of rollout steps (Stage 2 only)
 - `training.tvd.enabled`: Enable TVD loss (SOD case 2, Stage 2 only)
 - `training.tvd.weight`: TVD loss weight

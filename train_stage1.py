@@ -120,11 +120,11 @@ def main(cfg: DictConfig) -> None:
         model = torch.compile(model)
         print("Model compiled.")
 
-    # Create optimizer
+    # Create optimizer (training.lr takes precedence over optimizer.lr)
     optimizer = dispatch_optimizer(
         model=model,
-        lr=cfg.training.lr,
-        optimizer_type=cfg.optimizer.optimizer_type,
+        optimizer_cfg=cfg.optimizer,
+        lr_override=cfg.training.lr,
     )
 
     # Create scheduler
@@ -135,7 +135,6 @@ def main(cfg: DictConfig) -> None:
         scheduler_type=sched_cfg.scheduler_type,
         total_steps=total_steps,
         config=OmegaConf.to_container(sched_cfg, resolve=True),
-        total_epochs=cfg.training.epochs,
     )
 
     # Resolve model_dir under Hydra output dir so checkpoints live in outputs/<run>/

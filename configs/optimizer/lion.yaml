@@ -1,0 +1,6 @@
+# @package optimizer
+# Lion optimizer configuration
+
+optimizer_type: Lion
+lr: 1.0e-4
+weight_decay: 1e-4

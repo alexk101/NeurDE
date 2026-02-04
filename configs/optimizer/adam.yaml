@@ -1,0 +1,6 @@
+# @package optimizer
+# Adam optimizer configuration
+
+optimizer_type: Adam
+lr: 1.0e-4
+weight_decay: 1e-4

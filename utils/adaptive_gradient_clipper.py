@@ -293,9 +293,14 @@ class AdaptiveGradientClipper:
             if math.isfinite(total_norm_float) and total_norm_float > 0:
                 self.buffer.append(total_norm_float)
             else:
-                trainer.log.warning(
-                    f"Skipping non-finite norm {total_norm} during warmup on rank {trainer.world_rank}"
-                )
+                if torch.distributed.is_initialized():
+                    trainer.log.warning(
+                        f"Skipping non-finite norm {total_norm} during warmup on rank {trainer.world_rank}"
+                    )
+                else:
+                    trainer.log.warning(
+                        f"Skipping non-finite norm {total_norm} during warmup"
+                    )
 
             if len(self.buffer) >= self.warmup_steps:
                 self._initialize_ema()

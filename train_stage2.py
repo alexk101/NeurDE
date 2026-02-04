@@ -182,11 +182,11 @@ def main(cfg: DictConfig) -> None:
 
         print(f"Pretrained model loaded from {checkpoint_path}")
 
-    # Create optimizer
+    # Create optimizer (training.lr takes precedence over optimizer.lr)
     optimizer = dispatch_optimizer(
         model=model,
-        lr=cfg.training.lr,
-        optimizer_type=cfg.optimizer.optimizer_type,
+        optimizer_cfg=cfg.optimizer,
+        lr_override=cfg.training.lr,
     )
 
     # Create scheduler
@@ -196,7 +196,6 @@ def main(cfg: DictConfig) -> None:
         scheduler_type=cfg.training.scheduler.scheduler_type,
         total_steps=total_steps,
         config=OmegaConf.to_container(cfg.training.scheduler, resolve=True),
-        total_epochs=cfg.training.epochs,
     )
 
     # Resolve model_dir under Hydra output dir so checkpoints live in outputs/<run>/

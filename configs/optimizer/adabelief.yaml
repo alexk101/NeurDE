@@ -1,0 +1,8 @@
+# @package optimizer
+# AdaBelief optimizer configuration
+
+optimizer_type: AdaBelief
+lr: 1.0e-4
+weight_decay: 1e-4
+eps: 1e-8
+rectify: false

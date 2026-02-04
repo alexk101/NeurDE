@@ -17,7 +17,7 @@ from torch import optim
 from pytorch_optimizer import AdaBelief, Lion
 
 
-def dispatch_optimizer(model, lr=0.001, optimizer_type="AdamW"):
+def dispatch_optimizer(model, optimizer_cfg, lr_override=None):
     """
     Create and return an optimizer for a model or list of models.
 
@@ -28,30 +28,51 @@ def dispatch_optimizer(model, lr=0.001, optimizer_type="AdamW"):
     ----------
     model : torch.nn.Module or list of torch.nn.Module
         Model(s) to create optimizer(s) for
-    lr : float, optional
-        Learning rate (default: 0.001)
-    optimizer_type : str, optional
-        Type of optimizer to use. Options:
-        - "AdamW": AdamW optimizer with weight_decay=1e-4 (default)
-        - "AdaBelief": AdaBelief optimizer with eps=1e-8
-        - "Lion": Lion optimizer with weight_decay=1e-5 (single model) or 1e-2 (list)
-        - "SGD": SGD optimizer with momentum=0.9
-        - "Adam": Adam optimizer (fallback default)
+    optimizer_cfg : dict
+        Configuration dictionary with optimizer-specific parameters:
+        - lr (float, default: 0.001): Learning rate (used as fallback if lr_override not provided)
+        - optimizer_type (str, default: "AdamW"): Type of optimizer to use.
+          Options: "AdamW", "AdaBelief", "Lion", "SGD", "Muon", "Adam"
+        - weight_decay (float, default: 1e-4): Weight decay for AdamW
+        - eps (float, default: 1e-8): Epsilon for AdaBelief
+        - rectify (bool, default: False): Rectify for AdaBelief
+        - momentum (float, default: 0.9): Momentum for SGD
+    lr_override : float, optional
+        If provided, overrides the learning rate from optimizer_cfg.
+        This allows training configs (training.lr) to take precedence over
+        optimizer configs (optimizer.lr).
 
     Returns
     -------
     torch.optim.Optimizer or list of torch.optim.Optimizer
         Optimizer for single model, or list of optimizers for list of models
     """
+    lr = lr_override if lr_override is not None else optimizer_cfg.get("lr", 0.001)
+    optimizer_type = optimizer_cfg.get("optimizer_type", "AdamW")
+    weight_decay = optimizer_cfg.get("weight_decay", 1e-4)
+    eps = optimizer_cfg.get("eps", 1e-8)
+    rectify = optimizer_cfg.get("rectify", False)
+    momentum = optimizer_cfg.get("momentum", 0.9)
+
     if isinstance(model, torch.nn.Module):
         if optimizer_type == "AdamW":
-            optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+            optimizer = optim.AdamW(
+                model.parameters(), lr=lr, weight_decay=weight_decay
+            )
         elif optimizer_type == "AdaBelief":
-            optimizer = AdaBelief(model.parameters(), lr=lr, eps=1e-8, rectify=False)
+            optimizer = AdaBelief(
+                model.parameters(),
+                lr=lr,
+                eps=eps,
+                weight_decay=weight_decay,
+                rectify=rectify,
+            )
         elif optimizer_type == "Lion":
-            optimizer = Lion(model.parameters(), lr=lr, weight_decay=1e-5)
+            optimizer = Lion(model.parameters(), lr=lr, weight_decay=weight_decay)
         elif optimizer_type == "SGD":
-            optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+            optimizer = optim.SGD(
+                model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay
+            )
         else:  # default
             optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -61,31 +82,44 @@ def dispatch_optimizer(model, lr=0.001, optimizer_type="AdamW"):
         optimizers = []
         if optimizer_type == "AdamW":
             optimizers = [
-                optim.AdamW(model[i].parameters(), lr=lr) for i in range(len(model))
+                optim.AdamW(model[i].parameters(), lr=lr, weight_decay=weight_decay)
+                for i in range(len(model))
             ]
         elif optimizer_type == "AdaBelief":
             optimizers = [
-                AdaBelief(model[i].parameters(), lr=lr, eps=1e-8, rectify=False)
+                AdaBelief(
+                    model[i].parameters(),
+                    lr=lr,
+                    eps=eps,
+                    weight_decay=weight_decay,
+                    rectify=rectify,
+                )
                 for i in range(len(model))
             ]
         elif optimizer_type == "Lion":
             optimizers = [
-                Lion(model[i].parameters(), lr=lr, weight_decay=1e-2)
+                Lion(model[i].parameters(), lr=lr, weight_decay=weight_decay)
                 for i in range(len(model))
             ]
         elif optimizer_type == "SGD":
             optimizers = [
-                optim.SGD(model[i].parameters(), lr=lr, momentum=0.9)
+                optim.SGD(
+                    model[i].parameters(),
+                    lr=lr,
+                    momentum=momentum,
+                    weight_decay=weight_decay,
+                )
                 for i in range(len(model))
             ]
         else:  # default
             optimizers = [
-                optim.Adam(model[i].parameters(), lr=lr) for i in range(len(model))
+                optim.Adam(model[i].parameters(), lr=lr, weight_decay=weight_decay)
+                for i in range(len(model))
             ]
         return optimizers
 
 
-def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=None):
+def get_scheduler(optimizer, scheduler_type, total_steps, config):
     """
     Create and return a learning rate scheduler.
 
@@ -139,10 +173,6 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config, total_epochs=N
         For "ConstantLR":
             - factor (float, default: 1.0): Factor to multiply base LR by
             - total_iters (int, default: 0): Number of steps to apply factor (0 = entire training)
-
-    total_epochs : int, optional
-        Total number of training epochs. Required for CosineAnnealingLR (used as T_max).
-
     Returns
     -------
     torch.optim.lr_scheduler._LRScheduler

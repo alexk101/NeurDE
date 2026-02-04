@@ -1,0 +1,7 @@
+# @package optimizer
+# SGD optimizer configuration
+
+optimizer_type: SGD
+lr: 1.0e-4
+momentum: 0.9
+weight_decay: 0.0
