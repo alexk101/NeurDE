@@ -155,6 +155,11 @@ class BaseTrainer(ABC):
         self.best_models = [None] * 3
         self.best_model_paths = [None] * 3
         self.epochs_since_last_save = [0] * 3
+
+        # Global best loss tracking (for logging smooth monotonic curves)
+        self.best_train_loss: float = float("inf")
+        self.best_val_loss: float = float("inf")
+
         self.setup_logging()
 
         # Loss history for tracking
@@ -402,6 +407,10 @@ class BaseTrainer(ABC):
             self.best_losses = checkpoint["best_losses"]
         if "best_model_paths" in checkpoint:
             self.best_model_paths = checkpoint["best_model_paths"]
+        if "best_train_loss" in checkpoint:
+            self.best_train_loss = checkpoint["best_train_loss"]
+        if "best_val_loss" in checkpoint:
+            self.best_val_loss = checkpoint["best_val_loss"]
         if "global_step" in checkpoint:
             self.global_step = int(checkpoint["global_step"])
 
@@ -487,6 +496,8 @@ class BaseTrainer(ABC):
             "loss_history": self.loss_history,
             "best_losses": self.best_losses,
             "best_model_paths": self.best_model_paths,
+            "best_train_loss": self.best_train_loss,
+            "best_val_loss": self.best_val_loss,
             "global_step": self.global_step,
             "adaptive_clipper_state_dict": self.adaptive_clipper.state_dict(),
         }
@@ -689,19 +700,25 @@ class BaseTrainer(ABC):
                 self.tracker.log_metrics(
                     metrics, step=self.global_step, step_metric="epoch"
                 )
-                # Best epoch: log two curves when this epoch is a new best
-                if updated_best:
-                    train_at_best = getattr(self, "_last_epoch_train_loss", None)
-                    best_metrics = {
-                        "best/train_loss": float(
-                            train_at_best if train_at_best is not None else avg_loss
-                        ),
-                        "best/val_loss": float(avg_loss),
-                        "epoch": epoch + 1,
-                    }
-                    self.tracker.log_metrics(
-                        best_metrics, step=self.global_step, step_metric="epoch"
-                    )
+                # Update global best losses (for smooth monotonic logging curves)
+                train_loss_this_epoch = getattr(self, "_last_epoch_train_loss", None)
+                if train_loss_this_epoch is not None:
+                    self.best_train_loss = min(self.best_train_loss, train_loss_this_epoch)
+                else:
+                    # Stage 1 doesn't have separate train/val, avg_loss is train loss
+                    self.best_train_loss = min(self.best_train_loss, avg_loss)
+                # avg_loss is validation loss (Stage 2) or train loss (Stage 1)
+                self.best_val_loss = min(self.best_val_loss, avg_loss)
+
+                # Log global best losses every epoch (smooth monotonic curves)
+                best_metrics = {
+                    "best/train_loss": float(self.best_train_loss),
+                    "best/val_loss": float(self.best_val_loss),
+                    "epoch": epoch + 1,
+                }
+                self.tracker.log_metrics(
+                    best_metrics, step=self.global_step, step_metric="epoch"
+                )
                 # Reset per-interval grad-clip counters
                 self.adaptive_clipper.reset_log_interval_stats()
 
