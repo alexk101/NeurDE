@@ -14,14 +14,13 @@ import numpy as np
 from typing import Any, Dict, Optional
 from torch.utils.data import DataLoader
 from logging import getLogger
-import matplotlib.pyplot as plt
 
 from .base import BaseTrainer
 from utils.datasets import Stage2Dataset
 from utils.loss import l2_error, TVD_norm
 from utils.case_specific import tvd_weight_scheduler
 from utils.core import detach
-from utils.plotting import plot_cylinder_results, plot_sod_results
+from utils.plotting import plot_cylinder_results, plot_sod_results, close_figure
 
 
 class Stage2Trainer(BaseTrainer):
@@ -769,4 +768,4 @@ class Stage2Trainer(BaseTrainer):
             step=epoch + 1,
             step_metric="epoch",
         )
-        plt.close(fig)
+        close_figure(fig)

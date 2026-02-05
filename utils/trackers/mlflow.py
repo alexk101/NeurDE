@@ -167,10 +167,6 @@ class MlflowTracker(ExperimentTracker):
             else:
                 self._mlflow.log_metric(k, float(v))
 
-    def log_hyperparams(self, params: Dict[str, Any]) -> None:
-        """Log additional hyperparameters to MLflow."""
-        self._log_params_safe(params)
-
     def log_figure(
         self,
         figure: Union[

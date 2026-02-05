@@ -71,16 +71,6 @@ class ExperimentTracker(ABC):
         """
 
     @abstractmethod
-    def log_hyperparams(self, params: Dict[str, Any]) -> None:
-        """Log hyperparameters / configuration.
-
-        Parameters
-        ----------
-        params : Dict[str, Any]
-            Dictionary of parameter names to values.
-        """
-
-    @abstractmethod
     def log_figure(
         self,
         figure: Union[
@@ -141,9 +131,6 @@ class NullTracker(ExperimentTracker):
         step: Optional[int] = None,
         step_metric: Optional[str] = None,
     ) -> None:
-        pass
-
-    def log_hyperparams(self, params: Dict[str, Any]) -> None:
         pass
 
     def log_figure(

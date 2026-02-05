@@ -8,6 +8,7 @@ static images depending on tracker configuration.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Union
 
@@ -15,7 +16,13 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from ..core import detach
+# Silence kaleido and choreographer (image export) log noise
+logging.getLogger("kaleido").setLevel(logging.WARNING)
+logging.getLogger("choreographer").setLevel(logging.WARNING)
+
+from ..core import detach, ensure_kaleido_chrome
+
+ensure_kaleido_chrome()
 
 # -----------------------------------------------------------------------------
 # Constants (matching matplotlib backend for consistency)

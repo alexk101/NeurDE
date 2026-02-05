@@ -131,16 +131,6 @@ class WandbTracker(ExperimentTracker):
             else:
                 self._wandb.log(metrics)
 
-    def log_hyperparams(self, params: Dict[str, Any]) -> None:
-        """Log additional hyperparameters to W&B config.
-
-        Note: Most hyperparameters are logged at init via config_dict.
-        This method allows additional updates during training.
-        """
-        if self._run is not None:
-            for k, v in params.items():
-                self._run.config[k] = v
-
     def log_figure(
         self,
         figure: Union[

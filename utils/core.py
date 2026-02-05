@@ -5,6 +5,8 @@ This module provides basic utilities for device management, random seeding,
 tensor operations, and model checkpoint loading.
 """
 
+import os
+
 import torch
 import numpy as np
 import random
@@ -130,3 +132,29 @@ def adapt_checkpoint_keys(
             new_state_dict[k] = v
 
     return new_state_dict
+
+
+def ensure_kaleido_chrome() -> None:
+    """
+    Ensure Chrome for Kaleido (plotly static image export) is available.
+
+    If the Chrome executable that Kaleido/choreographer use is already present
+    and executable, this does nothing. Otherwise it calls kaleido.get_chrome_sync()
+    to download it. Use this before relying on plotly image export so you avoid
+    re-downloading on every run.
+    """
+    try:
+        from choreographer.cli._cli_utils import get_chrome_download_path
+
+        exe_path = get_chrome_download_path()
+        if (
+            exe_path is not None
+            and os.path.isfile(exe_path)
+            and os.access(exe_path, os.X_OK)
+        ):
+            return
+    except ImportError:
+        pass
+    import kaleido
+
+    kaleido.get_chrome_sync()

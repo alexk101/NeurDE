@@ -134,7 +134,8 @@ class BaseTrainer(ABC):
         load_dotenv(override=False)
 
         # Set plotting backend from config (e.g. matplotlib, plotly)
-        plotting_backend = cfg.get("logging.plotting_backend", "matplotlib")
+        logging_cfg = getattr(cfg, "logging", None)
+        plotting_backend = getattr(logging_cfg, "plotting_backend", "matplotlib") if logging_cfg is not None else "matplotlib"
         set_plotting_backend(plotting_backend)
 
         self.model = model

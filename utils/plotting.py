@@ -48,6 +48,7 @@ __all__ = [
     "plot_stage1_validation",
     "set_plotting_backend",
     "get_plotting_backend",
+    "close_figure",
     "FIG_DPI",
     "CYLINDER_FIGSIZE",
     "SOD_FIGSIZE",
@@ -68,6 +69,17 @@ def set_plotting_backend(backend: str) -> None:
 def get_plotting_backend() -> Any:
     """Return the current plotter module."""
     return _plotter
+
+
+def close_figure(fig: Any) -> None:
+    """Close the figure if it is a matplotlib figure; no-op for other backends (e.g. plotly)."""
+    try:
+        from matplotlib.figure import Figure
+        if isinstance(fig, Figure):
+            import matplotlib.pyplot as plt
+            plt.close(fig)
+    except ImportError:
+        pass
 
 
 def plot_cylinder_results(

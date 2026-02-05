@@ -12,11 +12,10 @@ import torch
 import torch.nn as nn
 from typing import Any, Dict, Optional
 from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
 
 from .base import BaseTrainer
 from utils.loss import l2_error
-from utils.plotting import plot_stage1_validation
+from utils.plotting import plot_stage1_validation, close_figure
 
 
 class Stage1Trainer(BaseTrainer):
@@ -161,7 +160,7 @@ class Stage1Trainer(BaseTrainer):
             step=epoch + 1,
             step_metric="epoch",
         )
-        plt.close(fig)
+        close_figure(fig)
 
     def _validate(self) -> float:
         """

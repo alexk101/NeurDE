@@ -10,7 +10,7 @@ Example usage:
 """
 
 import hydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 import torch
 import numpy as np
 import h5py
@@ -38,7 +38,12 @@ def main(cfg: DictConfig) -> None:
     set_seed(0)
 
     # Set plotting backend from config (e.g. matplotlib, plotly)
-    set_plotting_backend(OmegaConf.get(cfg, "logging.plotting_backend", "matplotlib"))
+    logging_cfg = getattr(cfg, "logging", None)
+    set_plotting_backend(
+        getattr(logging_cfg, "plotting_backend", "matplotlib")
+        if logging_cfg is not None
+        else "matplotlib"
+    )
 
     # Setup device
     device = torch.device(
