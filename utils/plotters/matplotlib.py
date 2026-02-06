@@ -22,8 +22,11 @@ from ..core import detach
 
 FIG_DPI = 200
 CYLINDER_FIGSIZE = (14, 5)
+CYLINDER_SINGLE_FIGSIZE = (5, 4)
 SOD_FIGSIZE = (16, 10)
+SOD_SINGLE_FIGSIZE = (16, 4)
 SOD_LINEWIDTH = 5
+SOD_ROW_INDEX = 2  # row index for 1D slice in SOD plots
 CYLINDER_TITLE_FONTSIZE = 16
 SOD_TITLE_FONTSIZE = 25
 SOD_SUBPLOT_TITLE_FONTSIZE = 18
@@ -34,6 +37,51 @@ def _image_dir(default_subdir: str, output_dir: str | None, base_dir: str) -> st
     if output_dir is not None:
         return output_dir
     return os.path.join(base_dir, "images", default_subdir)
+
+
+def plot_cylinder_field(
+    Ma,
+    title="Mach number",
+    ax=None,
+    vmin=None,
+    vmax=None,
+    cmap="jet",
+):
+    """
+    Draw a single 2D Mach number field. Used for dataset-only views and as a
+    building block for plot_cylinder_results (NN / GT / error panels).
+
+    Parameters
+    ----------
+    Ma : array-like
+        2D Mach number (Y, X).
+    title : str
+        Subplot title.
+    ax : matplotlib axes, optional
+        If given, draw on this axis and return its figure. Otherwise create a new figure.
+    vmin, vmax : float, optional
+        Color scale. If None, use min/max of Ma.
+    cmap : str
+        Colormap name (default "jet").
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    Ma = np.asarray(Ma)
+    if vmin is None:
+        vmin = float(np.nanmin(Ma))
+    if vmax is None:
+        vmax = float(np.nanmax(Ma))
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=CYLINDER_SINGLE_FIGSIZE, dpi=FIG_DPI)
+    else:
+        fig = ax.figure
+    im = ax.imshow(Ma, cmap=cmap, vmin=vmin, vmax=vmax)
+    ax.set_title(title, fontsize=CYLINDER_TITLE_FONTSIZE)
+    plt.colorbar(im, ax=ax)
+    ax.axis("off")
+    return fig
 
 
 def plot_cylinder_results(
@@ -53,20 +101,9 @@ def plot_cylinder_results(
 
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=CYLINDER_FIGSIZE, dpi=FIG_DPI)
 
-    im1 = ax1.imshow(Ma_NN, cmap="jet", vmin=vmin, vmax=vmax)
-    ax1.set_title("Mach number - NN", fontsize=CYLINDER_TITLE_FONTSIZE)
-    plt.colorbar(im1, ax=ax1)
-    ax1.axis("off")
-
-    im2 = ax2.imshow(Ma_GT, cmap="jet", vmin=vmin, vmax=vmax)
-    ax2.set_title("Mach number - GT", fontsize=CYLINDER_TITLE_FONTSIZE)
-    plt.colorbar(im2, ax=ax2)
-    ax2.axis("off")
-
-    im3 = ax3.imshow(Ma_err, cmap="hot")
-    ax3.set_title("|NN - GT|", fontsize=CYLINDER_TITLE_FONTSIZE)
-    plt.colorbar(im3, ax=ax3)
-    ax3.axis("off")
+    plot_cylinder_field(Ma_NN, title="Mach number - NN", ax=ax1, vmin=vmin, vmax=vmax)
+    plot_cylinder_field(Ma_GT, title="Mach number - GT", ax=ax2, vmin=vmin, vmax=vmax)
+    plot_cylinder_field(Ma_err, title="|NN - GT|", ax=ax3, vmin=None, vmax=None, cmap="hot")
 
     fig.suptitle(
         f"{case_type.capitalize()} - Sample {time_value}",
@@ -87,6 +124,84 @@ def plot_cylinder_results(
     return output_path
 
 
+def _sod_2d_to_1d(rho_2d, ux_2d, T_2d, P_2d):
+    """Extract 1D profile at SOD_ROW_INDEX from 2D fields (Y, X). Handles tensors and arrays."""
+    r = SOD_ROW_INDEX
+
+    def to_1d(arr):
+        s = arr[r, :]
+        return np.asarray(detach(s) if hasattr(s, "detach") else s)
+
+    return (to_1d(rho_2d), to_1d(ux_2d), to_1d(T_2d), to_1d(P_2d))
+
+
+def _draw_sod_profile_row(axes, rho, ux, T, P, linewidth=2, label=None):
+    """Draw one set of SOD 1D profiles (rho, ux, T, P) on four axes."""
+    for ax, data, title in zip(
+        axes,
+        [rho, T, ux, P],
+        ["Density", "Temperature", "Velocity in x", "Pressure"],
+    ):
+        ax.plot(data, linewidth=linewidth, label=label)
+        ax.set_title(title, fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+        ax.axis("off")
+
+
+def _draw_sod_errors_row(axes, err_rho, err_ux, err_T, err_P):
+    """Draw SOD error profiles on four axes."""
+    for ax, data, title in zip(
+        axes,
+        [err_rho, err_T, err_ux, err_P],
+        ["|NN - GT| Density", "|NN - GT| Temperature", "|NN - GT| Velocity", "|NN - GT| Pressure"],
+    ):
+        ax.plot(data, linewidth=2, color="C2")
+        ax.set_title(title, fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
+        ax.axis("off")
+
+
+def plot_sod_profiles(
+    rho_2d,
+    ux_2d,
+    T_2d,
+    P_2d,
+    time_step,
+    case_number,
+    output_dir=None,
+    save=True,
+):
+    """
+    Draw a single view of SOD 1D profiles (rho, ux, T, P) at one time step.
+    Used for dataset-only views (e.g. animation). Inputs are 2D (Y, X);
+    the row at SOD_ROW_INDEX is plotted.
+
+    Returns
+    -------
+    Figure or path depending on save.
+    """
+    rho, ux, T, P = _sod_2d_to_1d(rho_2d, ux_2d, T_2d, P_2d)
+    fig, axes = plt.subplots(1, 4, figsize=SOD_SINGLE_FIGSIZE, dpi=FIG_DPI)
+    fig.suptitle(
+        f"SOD shock case {case_number} time {time_step}",
+        fontweight="bold",
+        fontsize=SOD_TITLE_FONTSIZE,
+        y=0.98,
+    )
+    _draw_sod_profile_row(axes, rho, ux, T, P, linewidth=SOD_LINEWIDTH)
+    plt.tight_layout(rect=[0, 0, 1, 0.95], h_pad=0.35, w_pad=0.35)
+
+    if not save:
+        return fig
+
+    current_file = os.path.abspath(__file__)
+    main_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+    image_dir = _image_dir(f"SOD_case{case_number}", output_dir, main_dir)
+    os.makedirs(image_dir, exist_ok=True)
+    output_path = os.path.join(image_dir, f"SOD_case{case_number}_{time_step}.png")
+    fig.savefig(output_path, dpi=fig.get_dpi(), bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
 def plot_sod_results(
     rho_NN,
     ux_NN,
@@ -101,72 +216,27 @@ def plot_sod_results(
     output_dir=None,
     save=True,
 ):
-    rho_nn = np.asarray(detach(rho_NN[2, :]))
-    ux_nn = np.asarray(detach(ux_NN[2, :]))
-    T_nn = np.asarray(detach(T_NN[2, :]))
-    P_nn = np.asarray(detach(P_NN[2, :]))
-    rho_gt = np.asarray(rho_GT[2, :])
-    ux_gt = np.asarray(ux_GT[2, :])
-    T_gt = np.asarray(T_GT[2, :])
-    P_gt = np.asarray(P_GT[2, :])
+    rho_nn, ux_nn, T_nn, P_nn = _sod_2d_to_1d(rho_NN, ux_NN, T_NN, P_NN)
+    rho_gt = np.asarray(rho_GT[SOD_ROW_INDEX, :])
+    ux_gt = np.asarray(ux_GT[SOD_ROW_INDEX, :])
+    T_gt = np.asarray(T_GT[SOD_ROW_INDEX, :])
+    P_gt = np.asarray(P_GT[SOD_ROW_INDEX, :])
     err_rho = np.abs(rho_nn - rho_gt)
     err_ux = np.abs(ux_nn - ux_gt)
     err_T = np.abs(T_nn - T_gt)
     err_P = np.abs(P_nn - P_gt)
 
-    fig = plt.figure(figsize=SOD_FIGSIZE, dpi=FIG_DPI)
-
-    plt.suptitle(
+    fig, axes_2d = plt.subplots(2, 4, figsize=SOD_FIGSIZE, dpi=FIG_DPI)
+    fig.suptitle(
         f"SOD shock case {case_number} time {time_step}",
         fontweight="bold",
         fontsize=SOD_TITLE_FONTSIZE,
         y=0.98,
     )
-
-    plt.subplot(2, 4, 1)
-    plt.plot(rho_nn, linewidth=SOD_LINEWIDTH, label="NN")
-    plt.plot(rho_gt, linewidth=2, label="GT")
-    plt.title("Density", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
-    plt.gca().axis("off")
-
-    plt.subplot(2, 4, 2)
-    plt.plot(T_nn, linewidth=SOD_LINEWIDTH)
-    plt.plot(T_gt, linewidth=2)
-    plt.title("Temperature", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
-    plt.gca().axis("off")
-
-    plt.subplot(2, 4, 3)
-    plt.plot(ux_nn, linewidth=SOD_LINEWIDTH)
-    plt.plot(ux_gt, linewidth=2)
-    plt.title("Velocity in x", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
-    plt.gca().axis("off")
-
-    plt.subplot(2, 4, 4)
-    plt.plot(P_nn, linewidth=SOD_LINEWIDTH)
-    plt.plot(P_gt, linewidth=2)
-    plt.title("Pressure", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
-    plt.gca().axis("off")
-
-    plt.subplot(2, 4, 5)
-    plt.plot(err_rho, linewidth=2, color="C2")
-    plt.title("|NN - GT| Density", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
-    plt.gca().axis("off")
-
-    plt.subplot(2, 4, 6)
-    plt.plot(err_T, linewidth=2, color="C2")
-    plt.title("|NN - GT| Temperature", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
-    plt.gca().axis("off")
-
-    plt.subplot(2, 4, 7)
-    plt.plot(err_ux, linewidth=2, color="C2")
-    plt.title("|NN - GT| Velocity", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
-    plt.gca().axis("off")
-
-    plt.subplot(2, 4, 8)
-    plt.plot(err_P, linewidth=2, color="C2")
-    plt.title("|NN - GT| Pressure", fontsize=SOD_SUBPLOT_TITLE_FONTSIZE)
-    plt.gca().axis("off")
-
+    row0, row1 = axes_2d[0], axes_2d[1]
+    _draw_sod_profile_row(row0, rho_nn, ux_nn, T_nn, P_nn, linewidth=SOD_LINEWIDTH, label="NN")
+    _draw_sod_profile_row(row0, rho_gt, ux_gt, T_gt, P_gt, linewidth=2, label="GT")
+    _draw_sod_errors_row(row1, err_rho, err_ux, err_T, err_P)
     plt.tight_layout(rect=[0, 0, 1, 0.95], h_pad=0.35, w_pad=0.35)
 
     if not save:

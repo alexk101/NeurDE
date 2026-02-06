@@ -59,6 +59,105 @@ def _image_dir(default_subdir: str, output_dir: str | None, base_dir: str) -> st
 COLORSCALE_JET = "jet"
 COLORSCALE_HOT = "hot"
 
+# Single-panel sizes (for plot_cylinder_field, plot_sod_profiles)
+CYLINDER_SINGLE_FIGSIZE = (5, 4)
+SOD_SINGLE_FIGSIZE = (16, 4)
+SOD_ROW_INDEX = 2
+
+CYLINDER_SINGLE_SIZE = (
+    int(CYLINDER_SINGLE_FIGSIZE[0] * _DPI_SCALE),
+    int(CYLINDER_SINGLE_FIGSIZE[1] * _DPI_SCALE),
+)
+SOD_SINGLE_SIZE = (
+    int(SOD_SINGLE_FIGSIZE[0] * _DPI_SCALE),
+    int(SOD_SINGLE_FIGSIZE[1] * _DPI_SCALE),
+)
+
+
+def plot_cylinder_field(
+    Ma,
+    title: str = "Mach number",
+    ax=None,
+    vmin=None,
+    vmax=None,
+    cmap: str = "jet",
+) -> go.Figure:
+    """Draw a single 2D Mach field. (ax is ignored in plotly backend.)"""
+    Ma = np.asarray(Ma)
+    if vmin is None:
+        vmin = float(np.nanmin(Ma))
+    if vmax is None:
+        vmax = float(np.nanmax(Ma))
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=Ma,
+            colorscale=cmap,
+            zmin=vmin,
+            zmax=vmax,
+        )
+    )
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=CYLINDER_TITLE_FONTSIZE), x=0.5),
+        width=CYLINDER_SINGLE_SIZE[0],
+        height=CYLINDER_SINGLE_SIZE[1],
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False, autorange="reversed"),
+    )
+    return fig
+
+
+def _sod_2d_to_1d(rho_2d, ux_2d, T_2d, P_2d):
+    """Extract 1D profile at SOD_ROW_INDEX. Handles tensors and arrays."""
+    def to_1d(arr):
+        s = arr[SOD_ROW_INDEX, :]
+        return np.asarray(detach(s) if hasattr(s, "detach") else s)
+    return (to_1d(rho_2d), to_1d(ux_2d), to_1d(T_2d), to_1d(P_2d))
+
+
+def plot_sod_profiles(
+    rho_2d,
+    ux_2d,
+    T_2d,
+    P_2d,
+    time_step,
+    case_number: int,
+    output_dir: str | None = None,
+    save: bool = True,
+) -> Union[str, go.Figure]:
+    """Draw a single view of SOD 1D profiles (rho, ux, T, P)."""
+    rho, ux, T, P = _sod_2d_to_1d(rho_2d, ux_2d, T_2d, P_2d)
+    fig = make_subplots(
+        rows=1,
+        cols=4,
+        subplot_titles=["Density", "Temperature", "Velocity in x", "Pressure"],
+        horizontal_spacing=0.06,
+    )
+    for col, data in enumerate([rho, T, ux, P], start=1):
+        fig.add_trace(go.Scatter(y=data, line=dict(width=SOD_LINEWIDTH)), row=1, col=col)
+    fig.update_layout(
+        title=dict(
+            text=f"SOD shock case {case_number} time {time_step}",
+            font=dict(size=SOD_TITLE_FONTSIZE),
+            x=0.5,
+        ),
+        width=SOD_SINGLE_SIZE[0],
+        height=SOD_SINGLE_SIZE[1],
+        showlegend=False,
+    )
+    for col in range(1, 5):
+        fig.update_xaxes(visible=False, row=1, col=col)
+        fig.update_yaxes(visible=False, row=1, col=col)
+
+    if not save:
+        return fig
+    current_file = os.path.abspath(__file__)
+    main_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+    image_dir = _image_dir(f"SOD_case{case_number}", output_dir, main_dir)
+    os.makedirs(image_dir, exist_ok=True)
+    output_path = os.path.join(image_dir, f"SOD_case{case_number}_{time_step}.html")
+    fig.write_html(output_path)
+    return output_path
+
 
 def plot_cylinder_results(
     Ma_NN,

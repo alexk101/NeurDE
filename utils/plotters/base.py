@@ -17,6 +17,32 @@ FigureT = Any
 class PlotterBackend(Protocol):
     """Protocol for a plotting backend. All plot functions return a figure-like object."""
 
+    def plot_cylinder_field(
+        self,
+        Ma: Any,
+        title: str = "Mach number",
+        ax: Any = None,
+        vmin: Any = None,
+        vmax: Any = None,
+        cmap: str = "jet",
+    ) -> FigureT:
+        """Draw a single 2D Mach field. Returns figure. ax is used by matplotlib only."""
+        ...
+
+    def plot_sod_profiles(
+        self,
+        rho_2d: Any,
+        ux_2d: Any,
+        T_2d: Any,
+        P_2d: Any,
+        time_step: Any,
+        case_number: int,
+        output_dir: str | None = None,
+        save: bool = True,
+    ) -> Union[str, FigureT]:
+        """Draw a single view of SOD 1D profiles (rho, ux, T, P). Returns path if save else figure."""
+        ...
+
     def plot_cylinder_results(
         self,
         Ma_NN: Any,

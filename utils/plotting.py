@@ -8,10 +8,12 @@ swappable.
 Usage by case:
 -------------
 Cylinder/Cylinder_faster:
-    - plot_cylinder_results: 2D field visualization
+    - plot_cylinder_results: 2D field comparison (NN, GT, error)
+    - plot_cylinder_field: single 2D Mach field (for datasets / animation)
 
 SOD_shock_tube:
-    - plot_sod_results: 1D line plot visualization
+    - plot_sod_results: 1D comparison (4 fields + 4 errors)
+    - plot_sod_profiles: single 1D profiles (rho, ux, T, P) for datasets / animation
 
 Stage 1 validation:
     - plot_stage1_validation: Geq GT vs NN
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .animation import dataset_to_gif
 from .plotters import get_plotter
 
 # Default backend; can be overridden via set_plotting_backend()
@@ -43,7 +46,10 @@ from .plotters.matplotlib import (
 )
 
 __all__ = [
+    "dataset_to_gif",
+    "plot_cylinder_field",
     "plot_cylinder_results",
+    "plot_sod_profiles",
     "plot_sod_results",
     "plot_stage1_validation",
     "set_plotting_backend",
@@ -80,6 +86,43 @@ def close_figure(fig: Any) -> None:
             plt.close(fig)
     except ImportError:
         pass
+
+
+def plot_cylinder_field(
+    Ma: Any,
+    title: str = "Mach number",
+    ax: Any = None,
+    vmin: Any = None,
+    vmax: Any = None,
+    cmap: str = "jet",
+) -> Any:
+    """Draw a single 2D Mach field. Returns figure (or figure containing ax if ax given)."""
+    return _plotter.plot_cylinder_field(
+        Ma, title=title, ax=ax, vmin=vmin, vmax=vmax, cmap=cmap
+    )
+
+
+def plot_sod_profiles(
+    rho_2d: Any,
+    ux_2d: Any,
+    T_2d: Any,
+    P_2d: Any,
+    time_step: Any,
+    case_number: int,
+    output_dir: str | None = None,
+    save: bool = True,
+) -> Any:
+    """Draw a single view of SOD 1D profiles (rho, ux, T, P). Returns path if save else figure."""
+    return _plotter.plot_sod_profiles(
+        rho_2d,
+        ux_2d,
+        T_2d,
+        P_2d,
+        time_step,
+        case_number,
+        output_dir=output_dir,
+        save=save,
+    )
 
 
 def plot_cylinder_results(
