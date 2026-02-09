@@ -29,6 +29,8 @@ class DenseNet(nn.Module):
                 self.nonlinearity = nn.Tanh()
             elif nonlinearity.lower() == "relu":
                 self.nonlinearity = nn.ReLU()
+            elif nonlinearity.lower() == "gelu":
+                self.nonlinearity = nn.GELU()
             else:
                 raise ValueError(
                     f"{nonlinearity} type {type(nonlinearity)} is not supported"

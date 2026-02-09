@@ -3,7 +3,7 @@
 
 hidden_dim: 32
 num_layers: 4
-activation: relu
+activation: gelu
 
 # Model architecture is defined as:
 # alpha_layer: [4, hidden_dim, hidden_dim, ..., hidden_dim] (num_layers+1 elements)
