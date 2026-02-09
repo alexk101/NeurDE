@@ -221,6 +221,9 @@ def main(cfg: DictConfig) -> None:
     if case_cfg.case_type == "sod_shock_tube":
         detach_after_streaming = True  # SOD always detaches
 
+    # Mesoscopic / equilibrium loss trade-off
+    mesoscopic_alpha = cfg.training.get("mesoscopic_alpha", 0.0)
+
     # Create trainer
     trainer = Stage2Trainer(
         model=model,
@@ -244,6 +247,7 @@ def main(cfg: DictConfig) -> None:
         tvd_milestones=tvd_milestones,
         tvd_weights=tvd_weights,
         detach_after_streaming=detach_after_streaming,
+        mesoscopic_alpha=mesoscopic_alpha,
         cfg=cfg,
     )
 
@@ -254,6 +258,8 @@ def main(cfg: DictConfig) -> None:
     print(f"TVD enabled: {tvd_enabled}")
     print(f"Validation dataset size: {cfg.training.validation.dataset_size}")
     print(f"Detach after streaming: {detach_after_streaming}")
+    if mesoscopic_alpha > 0:
+        print(f"Mesoscopic alpha: {mesoscopic_alpha}")
 
     # Train
     trainer.train(cfg.training.epochs)

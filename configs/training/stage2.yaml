@@ -25,6 +25,11 @@ tvd:
 validation:
   dataset_size: 100  # Size of validation dataset
 
+# Mesoscopic / equilibrium loss trade-off (alpha in the paper).
+# L = alpha * l(f, f_pred) + (1-alpha) * l(f_eq, f_eq_pred)
+# alpha=0 uses only equilibrium loss (paper default), alpha=1 uses only mesoscopic loss.
+mesoscopic_alpha: 0.0
+
 # Detaching behavior (Stage 2 only)
 # SOD detaches after streaming, Cylinder doesn't
 detach_after_streaming: false
