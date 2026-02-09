@@ -28,6 +28,10 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+# Schedulers that should be stepped once per epoch (not per batch).
+# All other schedulers (OneCycleLR, CosineAnnealing*, etc.) are stepped per batch.
+EPOCH_STEP_SCHEDULERS = frozenset({"ReduceLROnPlateau", "StepLR", "ConstantLR"})
+
 def create_basis(Uax, Uay, device):
     """
     Create basis vectors for the lattice Boltzmann method.
@@ -664,11 +668,15 @@ class BaseTrainer(ABC):
             # Track loss history
             self.loss_history.append(avg_loss)
 
-            # Scheduler is stepped per batch inside train_epoch (stage trainers).
-            # ReduceLROnPlateau is stepped once per epoch here with the epoch loss.
+            # Per-batch schedulers (OneCycleLR, CosineAnnealing*) are stepped inside
+            # train_epoch. Epoch-level schedulers are stepped here once per epoch.
             if self.scheduler is not None:
-                if type(self.scheduler).__name__ == "ReduceLROnPlateau":
-                    self.scheduler.step(avg_loss)
+                sched_name = type(self.scheduler).__name__
+                if sched_name in EPOCH_STEP_SCHEDULERS:
+                    if sched_name == "ReduceLROnPlateau":
+                        self.scheduler.step(avg_loss)
+                    else:
+                        self.scheduler.step()
 
             # Update best-model tracking based on the returned loss (validation)
             updated_best = self.update_best_models(avg_loss, epoch)

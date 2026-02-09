@@ -1,0 +1,6 @@
+# @package training.scheduler
+# StepLR scheduler configuration
+
+scheduler_type: StepLR
+step_size: 100
+gamma: 0.5

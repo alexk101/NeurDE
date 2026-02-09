@@ -167,7 +167,7 @@ def get_scheduler(optimizer, scheduler_type, total_steps, config):
             - patience (int, default: 10): Number of epochs to wait before reducing LR
 
         For "StepLR":
-            - step_size (int, default: 30): Period of learning rate decay
+            - step_size (int, default: 30): Period of learning rate decay (in epochs)
             - gamma (float, default: 0.1): Multiplicative factor for LR decay
 
         For "ConstantLR":

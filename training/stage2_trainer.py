@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 from torch.utils.data import DataLoader
 from logging import getLogger
 
-from .base import BaseTrainer
+from .base import BaseTrainer, EPOCH_STEP_SCHEDULERS
 from utils.datasets import Stage2Dataset
 from utils.loss import l2_error, TVD_norm
 from utils.case_specific import tvd_weight_scheduler
@@ -65,6 +65,7 @@ class Stage2Trainer(BaseTrainer):
         tvd_milestones: Optional[list] = None,
         tvd_weights: Optional[list] = None,
         detach_after_streaming: bool = False,
+        mesoscopic_alpha: float = 0.0,
         cfg: DictConfig = None,
     ):
         """
@@ -114,6 +115,10 @@ class Stage2Trainer(BaseTrainer):
             TVD weights corresponding to milestones
         detach_after_streaming : bool, optional
             Whether to detach gradients after streaming (default: False)
+        mesoscopic_alpha : float, optional
+            Trade-off between mesoscopic and equilibrium losses (default: 0.0).
+            L = alpha * l(f, f_pred) + (1-alpha) * l(f_eq, f_eq_pred).
+            alpha=0 uses only equilibrium loss, alpha=1 uses only mesoscopic loss.
         cfg : DictConfig
             Hydra configuration object
         """
@@ -148,6 +153,10 @@ class Stage2Trainer(BaseTrainer):
 
         # Detaching behavior
         self.detach_after_streaming = detach_after_streaming
+
+        # Mesoscopic / equilibrium loss trade-off
+        # alpha=0 → pure equilibrium loss (default), alpha=1 → pure mesoscopic loss
+        self.mesoscopic_alpha = mesoscopic_alpha
 
         # Last epoch train loss (for experiment tracker: log both train and val)
         self._last_epoch_train_loss: Optional[float] = None
@@ -266,6 +275,10 @@ class Stage2Trainer(BaseTrainer):
                 rho, ux, uy, E = self.solver.get_macroscopic(Fi0, Gi0)
                 T = self.solver.get_temp_from_energy(ux, uy, E)
 
+                # Loss: L = sum_{r} alpha * l(f(r), f_pred(r)) + (1-alpha) * l(f_eq(r), f_eq_pred(r))
+                # where f is the full distribution (mesoscopic) and f_eq is the equilibrium distribution.
+                # alpha=0 (default) uses only the equilibrium loss.
+
                 # Prepare model input - handle both batched and non-batched cases
                 if batch_size == 1:
                     # Non-batched path (matches original): (1, 4, Y, X)
@@ -285,10 +298,18 @@ class Stage2Trainer(BaseTrainer):
                     # Target: (Q, Y, X)
                     Geq_target = Geq_seq[0, rollout].to(self.device)
 
-                    # Compute loss (matches original)
-                    inner_loss = l2_error(
+                    # Equilibrium loss: l(f_eq, f_eq_pred)
+                    eq_loss = l2_error(
                         Geq_pred, Geq_target.permute(1, 2, 0).reshape(-1, 9)
                     )
+
+                    # Mesoscopic loss: l(f, f_pred) - compare current distributions to ground truth
+                    if self.mesoscopic_alpha > 0:
+                        F_target = F_seq[0, rollout].to(self.device)
+                        G_target = G_seq[0, rollout].to(self.device)
+                        meso_loss = l2_error(Fi0, F_target) + l2_error(Gi0, G_target)
+                    else:
+                        meso_loss = 0.0
                 else:
                     # Batched path: (B, 4, Y, X)
                     inputs = torch.stack([rho, ux, uy, T], dim=1).to(self.device)
@@ -302,9 +323,19 @@ class Stage2Trainer(BaseTrainer):
                     # Reshape target to (B * Y * X, 9) to match Geq_pred
                     target_flattened = Geq_target.permute(0, 2, 3, 1).reshape(-1, 9)
 
-                    # Compute loss
-                    inner_loss = l2_error(Geq_pred, target_flattened)
+                    # Equilibrium loss: l(f_eq, f_eq_pred)
+                    eq_loss = l2_error(Geq_pred, target_flattened)
 
+                    # Mesoscopic loss: l(f, f_pred)
+                    if self.mesoscopic_alpha > 0:
+                        F_target = F_seq[:, rollout].to(self.device)
+                        G_target = G_seq[:, rollout].to(self.device)
+                        meso_loss = l2_error(Fi0, F_target) + l2_error(Gi0, G_target)
+                    else:
+                        meso_loss = 0.0
+
+                # Combined loss: alpha * mesoscopic + (1-alpha) * equilibrium
+                inner_loss = self.mesoscopic_alpha * meso_loss + (1 - self.mesoscopic_alpha) * eq_loss
                 total_loss += inner_loss
 
                 # TVD loss (if enabled and not first rollout)
@@ -382,7 +413,7 @@ class Stage2Trainer(BaseTrainer):
             self.optimizer.step()
             if (
                 self.scheduler is not None
-                and type(self.scheduler).__name__ != "ReduceLROnPlateau"
+                and type(self.scheduler).__name__ not in EPOCH_STEP_SCHEDULERS
             ):
                 self.scheduler.step()
 
@@ -728,7 +759,7 @@ class Stage2Trainer(BaseTrainer):
     def log_validation_image(self, epoch: int) -> None:
         """
         Run a validation rollout for plotting, build the comparison figure,
-        convert to PIL, log to the experiment tracker, and close the figure.
+        log to the experiment tracker, and close the figure.
         Uses cached rollout data when available (same epoch) to avoid double rollout.
         """
         if (

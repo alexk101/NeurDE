@@ -13,7 +13,7 @@ import torch.nn as nn
 from typing import Any, Dict, Optional
 from torch.utils.data import DataLoader
 
-from .base import BaseTrainer
+from .base import BaseTrainer, EPOCH_STEP_SCHEDULERS
 from utils.loss import l2_error
 from utils.plotting import plot_stage1_validation, close_figure
 
@@ -248,7 +248,7 @@ class Stage1Trainer(BaseTrainer):
             self.optimizer.step()
             if (
                 self.scheduler is not None
-                and type(self.scheduler).__name__ != "ReduceLROnPlateau"
+                and type(self.scheduler).__name__ not in EPOCH_STEP_SCHEDULERS
             ):
                 self.scheduler.step()
 
